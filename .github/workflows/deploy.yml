@@ -1,0 +1,24 @@
+# .github/workflows/deploy.yml
+name: Deploy solid-giggle to Justice Server
+
+on:
+  push:
+    branches:
+      - main # Запускать при отправке кода в ветку main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4 
+
+    - name: Deploy with rsync via SSH
+      uses: easingthemes/ssh-deploy@main
+      with:
+        # ЭТО ИСПОЛЬЗУЕТ СЕКРЕТЫ, КОТОРЫЕ ВЫ НАСТРОИЛИ:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+        REMOTE_USER: ${{ secrets.REMOTE_USER }}
+        TARGET: ${{ secrets.TARGET_DIR }} # Путь к папке на вашем Linux Mint
+        SOURCE: './' 
+        EXCLUDE: '.git'
