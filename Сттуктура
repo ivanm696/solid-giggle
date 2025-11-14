@@ -1,0 +1,12 @@
+solid-giggle/
+├── README.md
+├── main.py
+├── giggle_engine/
+│   ├── __init__.py
+│   ├── learn.py
+│   ├── generate.py
+│   └── ritual.py
+├── docs/
+│   └── architecture.md
+├── tests/
+│   └── test_giggle.py
