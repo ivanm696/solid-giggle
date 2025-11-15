@@ -1,0 +1,6 @@
+solid-giggle/
+├── bot.py             # Основной код вашего бота
+├── requirements.txt   # Список необходимых библиотек Python
+└── .github/
+    └── workflows/
+        └── deploy.yml # Скрипт автоматического развертывания (GitHub Actions)
