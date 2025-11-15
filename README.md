@@ -1,1 +1,2 @@
-**API:** RESTful API для связи 
+https://github-actions[bot]
+https://console.groq.com/home
