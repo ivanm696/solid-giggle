@@ -1,2 +1,2 @@
-github-actions[bot]
-ulutshiti straniţu,⚙️
+https://github-actions[bot]
+
