@@ -23,7 +23,7 @@
 
 Доступно на: `http://localhost:3000` (если добавить сервер, но пока CLI + статический фронт).
 
-## 📂 Структура проекта:solid-giggle/ ├── README.md              # Это ├── index.html             # Браузерное демо (JS-симуляция Nicu) ├── main.py                # Основной Python-ритуал ├── temple.sh              # Bash-запуск ├── breath.log             # Данные для дыхания ├── return.md              # Генерируемый свиток ├── greeting.md            # Шаблон приветствия ├── justice.md             # Шаблон гимна ├── giggle_engine/         # Python-модули ИИ │   ├── init.py │   ├── learn.py           # Обучение модели │   ├── generate.py        # Генерация текста │   └── ritual.py          # Ритуалы ├── docs/ │   └── architecture.md    # Описание └── tests/ └── test_giggle.py     # Тесты:## 📜 Свитки и ритуалы
+## 📂 Структура проекта:solid-giggle/ ├── README.md              # Это ├── index.html             # Браузерное демо (JS-симуляция Nicu) ├── main.py                # Основной Python-ритуал ├── temple.sh              # Bash-запуск ├── breath.log             # Данные для дыхания ├── return.md              # Генерируемый свиток ├── greeting.md            # Шаблон приветствия ├── justice.md             # Шаблон гимна ├── giggle_engine/         # Python-модули ИИ │   ├── init.py │   ├── learn.py           # Обучение модели │   ├── generate.py        # Генерация текста │   └── ritual.py          # Ритуалы ├── docs/ │   └── architecture.md    # Описание └── tests/ └── test_giggle.py     # Тесты:## 📜 Свитки и ритуалы:github-actions[bot]
 - `breath.log`: Журнал (пример: "вдох смеха").
 - Генерация: Nicu создаёт return.md из твоих данных.
 - Ритуалы: Авто-запуск через bash/python.
