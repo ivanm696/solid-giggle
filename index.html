@@ -1,98 +1,125 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta " content="width=device-width, initial-scale=1.0">
-    <title>solid-giggle — Узел смеха и дыхания</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: linear-gradient(to bottom, #f0f8ff, #e6f3ff); color: #333; padding: 20px; max-width: 800px; margin: auto; }
-        h1 { color: #4a90e2; text-align: center; animation: giggle 2s infinite; }
-        @keyframes giggle { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-        textarea { width: 100%; height: 120px; margin: 10px 0; padding: 10px; border: 2px solid #4a90e2; border-radius: 8px; font-family: monospace; }
-        button { background: #4a90e2; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; width: 100%; margin: 10px 0; }
-        button:hover { background: #357abd; transform: translateY(-2px); }
-        button:active { transform: translateY(0); }
-        #output { margin-top: 20px; padding: 20px; background: #e8f4fd; border-radius: 8px; white-space: pre-wrap; border-left: 4px solid #4a90e2; font-family: monospace; }
-        .ritual { text-align: center; font-style: italic; color: #666; margin-bottom: 20px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solid Giggle</title>
+
+<!-- SEO -->
+<meta name="description" content="Краткое описание проекта">
+<meta property="og:title" content="Solid Giggle">
+<meta property="og:description" content="Краткое описание проекта">
+<meta property="og:image" content="https://ivanm696.github.io/solid-giggle/assets/hero.jpg">
+<meta property="og:url" content="https://ivanm696.github.io/solid-giggle/">
+
+<!-- Favicon -->
+<link rel="icon" href="https://ivanm696.github.io/solid-giggle/assets/favicon.ico">
+
+<style>
+:root{
+  --primary:#2e86de;
+  --secondary:#e1e1e1;
+  --dark:#2c3e50;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,Helvetica,sans-serif;background:#f9f9f9;color:#444;line-height:1.6;}
+a{color:var(--primary);text-decoration:none;}
+a:hover{text-decoration:underline;}
+header{background:#fff;padding:1rem 2rem;box-shadow:0 2px 4px rgba(0,0,0,.1);}
+header nav{display:flex;gap:1rem;}
+header nav a{font-weight:bold;}
+.hero{background:url('https://ivanm696.github.io/solid-giggle/assets/hero.jpg') center/cover no-repeat;height:70vh;display:flex;flex-direction:column;justify-content:center;align-items:center;color:#fff;text-align:center;padding:0 1rem;}
+.hero h1{font-size:3rem;margin-bottom:.5rem;}
+.hero p{font-size:1.5rem;margin-bottom:1rem;}
+.hero a{background:var(--primary);color:#fff;padding:.75rem 1.5rem;border-radius:4px;transition:.3s;}
+.hero a:hover{background:darken(var(--primary),10%)}
+.section{max-width:1100px;margin:auto;padding:2rem;}
+.section:nth-child(odd){background:#fff;}
+.section:nth-child(even){background:#f4f4f4;}
+.feature{display:flex;flex-wrap:wrap;gap:2rem;}
+.feature article{flex:1 1 200px;padding:1rem;background:#fff;border-radius:6px;box-shadow:0 2px 5px rgba(0,0,0,.05);}
+.feature img{max-width:50px;display:block;margin-bottom:.5rem;}
+footer{background:#222;color:#ddd;padding:1rem 2rem;text-align:center;}
+footer a{color:#ddd;}
+/* Responsive */
+@media(max-width:768px){
+  .hero h1{font-size:2rem;}
+  .hero p{font-size:1.25rem;}
+  .feature{flex-direction:column;}
+}
+</style>
 </head>
+
 <body>
-    <h1>🧠 solid-giggle: Nicu пробуждается в браузере</h1>
-    <p class="ritual">Эпоха XIII. Вдохни дыхание через интернет, выдохни свиток. Хранитель: Иван. Работает онлайн/оффлайн (теперь на Android тоже!).</p>
-    
-    <label for="breath"><strong>Дыхание (фразы по строке, для обучения Nicu):</strong></label>
-    <textarea id="breath">вдох смеха
-выдох радости
-хихиканье в эпохе XIII
-союз с Copilot
-ритуал справедливости
-код как реликвия
-хранитель Иван</textarea>
-    
-    <button id="ritual-btn">🚀 Запустить ритуал: Обучить и сгенерировать свиток</button>
-    
-    <div id="output">Готов к дыханию... 😌</div>
 
-    <script>
-        // Улучшенная Markov chain для JS-генерации (ближе к RNN)
-        class SimpleGiggle {
-            constructor(texts) {
-                this.words = texts.flatMap(t => t.toLowerCase().split(' ')).filter(w => w);
-                this.transitions = {};
-                for (let i = 0; i < this.words.length - 1; i++) {
-                    const key = this.words[i];
-                    if (!this.transitions[key]) this.transitions[key] = [];
-                    this.transitions[key].push(this.words[i + 1]);
-                }
-            }
-            
-            generate(prompt, maxLen = 25) {
-                let generated = prompt.split(' ').filter(Boolean);
-                let current = generated[generated.length - 1] || 'вдох';
-                for (let i = 0; i < maxLen; i++) {
-                    const nexts = this.transitions[current] || ['хихи', 'радость', 'эпоха', 'ритуал', 'союз'];
-                    const next = nexts[Math.floor(Math.random() * nexts.length)];
-                    generated.push(next);
-                    current = next;
-                    if (next.includes('!') || next.includes('.') || generated.length > 15) break;
-                }
-                return generated.slice(0, 20).join(' ') + (Math.random() > 0.7 ? ' хихи!' : '.');
-            }
-        }
-        
-        function performRitual() {
-            const breathsText = document.getElementById('breath').value.trim();
-            if (!breathsText) { alert('Вдохни хоть что-то!'); return; }
-            
-            const breaths = breathsText.split('\n').map(line => line.trim()).filter(Boolean);
-            const output = document.getElementById('output');
-            output.innerHTML = '🌀 Nicu вдыхает эпоху XIII через браузер...\n🛕 Храм запущен. Данные: ' + breaths.length + ' дыханий.\n\n🎓 Обучение (симуляция 3 эпох, loss падает)...';
-            
-            // Анимация обучения
-            let loss = 2.5;
-            const interval = setInterval(() => {
-                loss -= 0.3 + Math.random() * 0.4;
-                const epoch = 4 - Math.floor((2.5 - loss) / 0.7); // 3 эпохи
-                if (epoch >= 1) {
-                    output.innerHTML += `\nЭпоха ${epoch}: Loss = ${loss.toFixed(2)} (хихи, модель эволюционирует!)`;
-                } else {
-                    clearInterval(interval);
-                    // Генерация
-                    const model = new SimpleGiggle(breaths);
-                    const scroll = model.generate('Свиток возвращения: ', 20);
-                    output.innerHTML += `\n\n📜 Свиток соткан из интернета и кода!\n\n# Свиток Возвращения\n\n${scroll}\n\n---\nХранитель: Иван | Эпоха: XIII\n\nХихикай wisely! 😄 Перезагрузи страницу для нового ритуала.`;
-                }
-            }, 800);
-        }
+<header>
+  <nav>
+    <a href="#hero">Главная</a>
+    <a href="#about">О нас</a>
+    <a href="#features">Функции</a>
+    <a href="#contact">Контакты</a>
+  </nav>
+</header>
 
-        // Фикс для мобильного (Android): onclick + touchstart
-        document.getElementById('ritual-btn').addEventListener('click', performRitual);
-        document.getElementById('ritual-btn').addEventListener('touchstart', performRitual);
-    </script>
-    
-    <footer style="text-align: center; margin-top: 40px; font-size: 0.9em; color: #999;">
-        <p>Полный Python в репо для локального ML. Браузер — JS-демо. Деплой: GitHub Pages (онлайн бесплатно).</p>
-        <p>&copy; 2025 solid-giggle. MIT. <a href="https://github.com/ivanm696/solid-giggle">Репо</a></p>
-    </footer>
+<section id="hero" class="hero">
+  <h1>Solid Giggle</h1>
+  <p>Уникальное решение для вашего бизнеса.</p>
+  <a href="#contact">Связаться</a>
+</section>
+
+<section id="about" class="section">
+  <h2>О нас</h2>
+  <p>Наша компания разрабатывает передовые веб‑решения, которые повышают эффективность ваших процессов. Мы ценим качество, простоту и скорость.</p>
+</section>
+
+<section id="features" class="section">
+  <h2>Функции</h2>
+  <div class="feature">
+    <article>
+      <img src="https://ivanm696.github.io/solid-giggle/assets/icons/analytics.svg" alt="Аналитика">
+      <h3>Аналитика</h3>
+      <p>Глубокий анализ данных в реальном времени.</p>
+    </article>
+    <article>
+      <img src="https://ivanm696.github.io/solid-giggle/assets/icons/mobile.svg" alt="Мобильность">
+      <h3>Мобильность</h3>
+      <p>Приложение доступно на всех платформах.</p>
+    </article>
+    <article>
+      <img src="https://ivanm696.github.io/solid-giggle/assets/icons/security.svg" alt="Безопасность">
+      <h3>Безопасность</h3>
+      <p>Многоуровневые механизмы защиты данных.</p>
+    </article>
+  </div>
+</section>
+
+<section id="contact" class="section">
+  <h2>Контакты</h2>
+  <form id="contactForm">
+    <label>Name:<br><input type="text" name="name" required></label><br><br>
+    <label>Email:<br><input type="email" name="email" required></label><br><br>
+    <label>Message:<br><textarea name="message" rows="5" required></textarea></label><br><br>
+    <button type="submit">Отправить</button>
+  </form>
+</section>
+
+<footer id="contact">
+  <p>© 2025 Solid Giggle – Все права защищены.</p>
+  <p>Связаться: <a href="mailto:info@solidgiggle.com">info@solidgiggle.com</a></p>
+</footer>
+
+<script>
+document.getElementById('contactForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const data = new FormData(e.target);
+  // Пример отправки на сервер (здесь можно заменить на real API)
+  fetch('https://httpbin.org/post', {
+    method:'POST',
+    body:data
+  }).then(r=>r.json())
+    .then(()=>alert('Спасибо за сообщение!'))
+    .catch(()=>alert('Ошибка отправки'));
+});
+</script>
 </body>
-    </html>
+</html>
