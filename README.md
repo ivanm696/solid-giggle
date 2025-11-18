@@ -1,86 +1,100 @@
-Solid Giggle
+# .github/workflows/deploy.yml
+name: Bot CI/CD
 
-> **Solid Giggle** – современный одностраничный сайт (SPA) для небольших бизнесов, созданный с использованием HTML5, CSS3 (Flexbox/Grid) и чистого ES6+.  
-> Демонстрация: <https://ivanm696.github.io/solid-giggle/>
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
-![CI](https://img.shields.io/github/actions/workflow/status/ivanm696/solid-giggle/ci.yml?label=CI&logo=github)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Stars](https://img.shields.io/github/stars/ivanm696/solid-giggle?style=social)
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.build.outputs.tag }}
 
-## 📸 Demo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-![Solid Giggle in Action](assets/screenshot.png)
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-## ✨ Features
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
-- 🎯 **Single‑Page Layout** – плавный скролл и переходы между секциями.
-- ⚡ **Адаптивный дизайн** – от мобильных устройств до десктопов.
-- 🧩 **Модульные компоненты** – легко расширять функциональность.
-- 🚀 **PWA‑подход** – кэширование ассетов, офлайн‑режим.
-- 📊 **Аналитика** – готовый интегрируемый модуль Google Analytics / Yandex.Metrica.
-- 📬 **Форма обратной связи** – отправка сообщений через API (или mock‑сервис).
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r dev-requirements.txt || true
 
-## 🚀 Quick Start
+      - name: Lint
+        run: |
+          flake8 bot tests
+          black --check .
+          isort --check-only .
 
-> **Для локальной разработки** (если используется Vite/Parcel/ESBuild):
+      - name: Test
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TEST_MODE: 1
+        run: |
+          pytest tests
 
-```bash
-git clone https://github.com/ivanm696/solid-giggle.git
-cd solid-giggle
-npm i          # установим зависимости (если есть)
-npm run dev    # запустим dev‑сервер
+      - name: Build Docker image
+        id: build
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/mybot
+          TAG=${{ github.sha }}
+          docker build -t $IMAGE:$TAG -f docker/Dockerfile .
+          echo "::set-output name=tag::$TAG"
 
-Для развертывания на GitHub Pages (если не настроен CI):
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-npm run build   # собрать статические файлы
-npm run deploy  # git push gh-pages
+      - name: Push Docker image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/mybot
+          TAG=${{ steps.build.outputs.tag }}
+          docker push $IMAGE:$TAG
 
-Если у вас нет
-package.json
+  deploy:
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-, просто откройте
-index.html
+      - name: Deploy to Kubernetes
+        env:
+          KUBECONFIG: ${{ secrets.KUBECONFIG_BASE64 }}
+        run: |
+          echo "$KUBECONFIG" | base64 -d > ~/.kube/config
+          kubectl set image deployment/mybot-deploy mybot=ghcr.io/${{ github.repository_owner }}/mybot:${{ needs.build_and_test.outputs.image-tag }}
+          kubectl rollout status deployment/mybot-deploy
 
-в браузере – сайт полностью статический.
-
-🛠️ Технологический стек
-Категория	Технологии
-Фронтенд	HTML5, CSS3 (Flexbox, Grid, CSS‑переменные)
-Скрипты	ES6+ (fetch, IntersectionObserver)
-Сборка	Vite (или любой другой сборщик)
-CI	GitHub Actions
-Деплой	GitHub Pages
-📄 Лицензия
-MIT – см. файл
-LICENSE
-
-.
-
-🤝 Contributing
-Мы всегда открыты к улучшениям!
-
-Сделайте
-fork
-
-репозитория.
-Создайте ветку
-feat/your-feature
-
-.
-Добавьте тесты (если есть).
-git push origin feat/your-feature
-
-.
-Откройте Pull Request.
-Пожалуйста, следуйте нашему Style Guide и добавляйте описание изменений в комментарии к PR.
-
-📬 Связь
-📧 Email:
-info@solidgiggle.com
-
-🐦 Twitter: https://twitter.com/solidgiggle
-🗨️ Discord:
-solidgiggle#1234
-
-Спасибо за интерес к проекту!
-Если у вас возникли вопросы, пишите в Issues – будем рады помочь.
+      # Если используете Docker‑Compose на VPS:
+      # - name: Deploy via SSH
+      #   uses: appleboy/ssh-action@v0.1.10
+      #   with:
+      #     host: ${{ secrets.SSH_HOST }}
+      #     username: ${{ secrets.SSH_USER }}
+      #     key: ${{ secrets.SSH_KEY }}
+      #     script: |
+      #       cd /opt/mybot
+      #       git pull
+      #        down
+      #       docker-compose up -d
