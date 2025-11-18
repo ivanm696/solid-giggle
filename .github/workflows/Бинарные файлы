@@ -1,0 +1,9 @@
+# Бинарные файлы, логики сборки и кеши
+node_modules/
+dist/
+tmp/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.env

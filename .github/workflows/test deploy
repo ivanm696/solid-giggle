@@ -96,5 +96,5 @@ jobs:
       #     script: |
       #       cd /opt/mybot
       #       git pull
-      #        down
+      #       docker-compose down
       #       docker-compose up -d
