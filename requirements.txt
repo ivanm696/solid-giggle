@@ -1,7 +1,0 @@
-# requirements.txt
-# Для Telegram:
-# pyTelegramBotAPI
-# Для Discord:
-# discord.py
-# Для базовых задач:
-requests
