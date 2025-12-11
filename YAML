@@ -1,4 +1,8 @@
-name: Report remaining open issues
+plugins:
+  - jekyll-github-metadata
+  - jekyll-seo-tag
+  - jekyll-coffeesc
+theme: jekyll-theme-primer name: Report remaining open issues
 on:
   schedule:
     # Daily at 8:20 UTC
