@@ -1,0 +1,41 @@
+name: Проверка URL на "Мертвые" Ссылки
+
+# Документация: Рабочий процесс запускается при каждом push в ветку main
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Позволяет запускать вручную из вкладки Actions
+
+# Переменные, которые нужно настроить
+env:
+  # Замените 'ВАШ_РЕПОЗИТОРИЙ' на имя вашего репозитория (например, 'my-website')
+  # Это гарантирует правильность базового пути при запуске тестов.
+  BASE_URL_PATH: /ВАШ_РЕПОЗИТОРИЙ
+
+jobs:
+  link_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code # Шаг 1: Получаем ваш код
+        uses: actions/checkout@v4
+        
+      - name: Установка Node.js # Шаг 2: Устанавливаем окружение для проверки
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Установка link-checker # Шаг 3: Устанавливаем инструмент для проверки ссылок
+        run: npm install -g link-checker
+
+      - name: Запуск проверки ссылок (Отчет) # Шаг 4: Генерируем рапорт
+        # Проверяем все HTML-файлы в папке и игнорируем любые 404, которые могут быть допустимы (например, внешние API)
+        run: |
+          echo "--- НАЧАЛО РАПОРТА ПРОВЕРКИ ССЫЛОК ---"
+          link-checker \
+            --root . \
+            --exclude-url-pattern "404.html" \
+            --exclude-url-pattern "https://api.github.com" \
+            --base-path ${{ env.BASE_URL_PATH }} \
+            --file-pattern "**/*.html"
+          echo "--- КОНЕЦ РАПОРТА ПРОВЕРКИ ССЫЛОК ---"
