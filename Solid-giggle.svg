@@ -27,3 +27,58 @@
   <!-- Улыбка -->
   <path d="M 90 200 C 128 225, 166 225, 200 200" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
 </svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Background (transparent) -->
+
+  <!-- Head circle -->
+  <circle cx="128" cy="128" r="88" fill="#F5D3B1"/>
+  <!-- Outline around head for clarity on dark tabs -->
+  <circle cx="128" cy="128" r="94" fill="none" stroke="#FFFFFF" stroke-width="8"/>
+
+  <!-- Hair -->
+  <path d="M64 120
+           C64 72, 108 52, 144 60
+           C164 64, 178 76, 188 96
+           C194 108, 196 118, 196 124
+           L196 126
+           C160 92, 116 84, 86 95
+           C74 99, 66 110, 64 120 Z"
+        fill="#7B3FE4"/>
+
+  <!-- Eyebrows (gentle S-curve hint) -->
+  <path d="M92 112 C 102 104, 114 104, 124 112" stroke="#7B3FE4" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M132 112 C 142 104, 154 104, 164 112" stroke="#7B3FE4" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Laughing eyes -->
+  <path d="M92 132 C 104 144, 116 144, 128 132" stroke="#5A2CCF" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M128 132 C 140 144, 152 144, 164 132" stroke="#5A2CCF" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Mouth (wide laugh) -->
+  <path d="M84 156
+           C 104 188, 152 188, 172 156
+           C 152 168, 112 168, 84 156 Z"
+        fill="#7B3FE4"/>
+
+  <!-- Teeth highlight -->
+  <path d="M92 158
+           C 112 176, 144 176, 164 158
+           C 144 164, 112 164, 92 158 Z"
+        fill="#FFFFFF" opacity="0.9"/>
+
+  <!-- Chin / lower lip shine -->
+  <path d="M98 178 C 128 190, 158 190, 186 172"
+        stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.9"/>
+
+  <!-- Neck and shirt -->
+  <path d="M96 190 C 112 206, 144 206, 160 190 L 160 206 C 160 220, 96 220, 96 206 Z" fill="#7B3FE4"/>
+  <path d="M76 210 C 92 236, 164 236, 180 210
+           C 176 218, 164 224, 128 224
+           C 92 224, 80 218, 76 210 Z" fill="#5A2CCF"/>
+
+  <!-- Subtle cheek blush -->
+  <circle cx="96" cy="146" r="8" fill="#E9BFA1" opacity="0.8"/>
+  <circle cx="160" cy="146" r="8" fill="#E9BFA1" opacity="0.8"/>
+
+  <!-- Outer subtle glow ring for visibility as favicon -->
+  <circle cx="128" cy="128" r="118" fill="none" stroke="#9E57FF" stroke-width="2" opacity="0.35"/>
+</svg>
