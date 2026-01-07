@@ -1,0 +1,89 @@
+# .github/workflows/deploy.yml
+name: Bot CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.build.outputs.image-tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r dev-requirements.txt || true
+
+      - name: Lint
+        run: |
+          flake8 bot
+          black --check .
+          isort --check-only .
+
+      - name: Test
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TEST_MODE: 1
+        run: |
+          pytest
+
+      - name: Build Docker image
+        id: build
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/mybot
+          TAG=${{ github.sha }}
+          docker build -t $IMAGE:$TAG -f docker/Dockerfile .
+          echo "image-tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/mybot
+          TAG=${{ steps.build.outputs.image-tag }}
+          docker push $IMAGE:$TAG
+
+  deploy:
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Kubernetes
+        env:
+          KUBECONFIG: ${{ secrets.KUBECONFIG_BASE64 }}
+        run: |
+          echo "$KUBECONFIG" | base64 -d > ~/.kube/config
+          kubectl set image deploy/mybot-deploy mybot=ghcr.io/${{ github.repository_owner }}/mybot:${{ needs.build_and_test.outputs.image-tag }}
+          kubectl rollout status deployment/mybot-deploy

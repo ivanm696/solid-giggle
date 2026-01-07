@@ -1,0 +1,28 @@
+{
+  "name": "giggle_engine",
+  "version": "0.1.0",
+  "description": "Your awesome engine",
+  "private": true,
+  "main": "dist/index.js",          // CJS‑бандл
+  "module": "dist/index.esm.js",    // ESM‑бандл
+  "unpkg": "dist/index.umd.js",     // UMD‑бандл (для CDN)
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "clean": "rimraf dist",
+    "build:ts": "tsc",
+    "build:rollup": "rollup -c",
+    "build:vite": "vite build",
+    "build": "npm run clean && npm run build:ts && npm run build:rollup", // ← основной
+    "start": "npm run build && node dist/index.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "rollup": "^4.16.1",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "rimraf": "^6.0.1",
+    "vite": "^5.2.9",
+    "@vitejs/plugin-react": "^4.2.1"   // если используется React
+  },
+  "dependencies": {}
+}

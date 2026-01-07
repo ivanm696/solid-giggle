@@ -1,0 +1,41 @@
+plugins:
+  - jekyll-github-metadata
+  - jekyll-seo-tag
+  - jekyll-coffeesc
+theme: jekyll-theme-primer name: Report remaining open issues
+on:
+  schedule:
+    # Daily at 8:20 UTC
+    - cron: '20 8 * * *'
+jobs:
+  track_pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get open issue count 🚀
+        # Шаг для получения количества открытых Issues с помощью GraphQL
+        run: |
+          # В GraphQL поле 'states' ожидает список (массив) состояний, поэтому используем [OPEN].
+          numOpenIssues="$(gh api graphql -F owner=$OWNER -F name=$REPO -f query='
+            query($name: String!, $owner: String!) {
+              repository(owner: $owner, name: $name) {
+                issues(states: [OPEN]){ # <-- ИСПРАВЛЕНИЕ ЗДЕСЬ
+                  totalCount
+                }
+              }
+            }
+          ' --jq '.data.repository.issues.totalCount')"
+
+          # Записываем результат в переменную среды, чтобы использовать её на следующем шаге.
+          echo 'NUM_OPEN_ISSUES='$numOpenIssues >> $GITHUB_ENV
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+
+      - name: Create issue report 📝
+        # Шаг для создания нового Issue с отчётом.
+        run: |
+          # Используем переменную $NUM_OPEN_ISSUES, созданную на предыдущем шаге.
+          gh issue create --title "Issue report" --body "$NUM_OPEN_ISSUES issues remaining" --repo $GITHUB_REPOSITORY
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
