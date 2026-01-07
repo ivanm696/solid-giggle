@@ -1,7 +1,33 @@
-# requirements.txt
-# Для Telegram:
-# pyTelegramBotAPI
-# Для Discord:
-# discord.py
-# Для базовых задач:
-requests
+# Django framework
+Django>=4.2,<5
+
+# REST API (optional, comment out if not needed)
+djangorestframework>=3.15,<4
+
+# Database driver – выберите один
+psycopg2-binary>=2.9        # PostgreSQL
+# mysqlclient>=2.2           # MySQL
+# pymysql>=1.1               # MySQL‑compatible pure‑Python driver
+# cx_Oracle>=8.3             # Oracle
+
+# Image processing
+Pillow>=10.4
+
+# Environment variables handling
+python-dotenv>=1.0
+
+# Production WSGI server
+gunicorn>=22.0
+
+# Static files handling (WhiteNoise)
+whitenoise>=6.7
+
+# CORS handling (optional)
+django-cors-headers>=4.3
+
+# Background tasks (optional)
+celery[redis]>=5.4
+redis>=5.0
+
+# Helper for .env parsing (alternative to python-dotenv)
+django-environ>=0.11

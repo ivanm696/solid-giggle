@@ -1,6 +1,5 @@
 # .github/workflows/deploy.yml
-
-name: Bot CI/CD Workflow
+name: Bot CI/CD
 
 on:
   push:
@@ -13,50 +12,78 @@ on:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
-    
+    outputs:
+      image-tag: ${{ steps.build.outputs.image-tag }}
+
     steps:
-      - name: Checkout Code 🛎️
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Set up Python 🐍
-        uses: actions/setup-python@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.12"
 
-      - name: Install dependencies 📦
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          
-      - name: Run Bot Tests 🧪
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r dev-requirements.txt || true
+
+      - name: Lint
+        run: |
+          flake8 bot
+          black --check .
+          isort --check-only .
+
+      - name: Test
         env:
-          # Установим переменные окружения для тестирования
-          TEST_MODE: True 
-          CI_TEST: True
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TEST_MODE: 1
         run: |
-          echo "Запуск тестов бота..."
-          python bot.py
-          
+          pytest
+
+      - name: Build Docker image
+        id: build
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/mybot
+          TAG=${{ github.sha }}
+          docker build -t $IMAGE:$TAG -f docker/Dockerfile .
+          echo "image-tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository_owner }}/mybot
+          TAG=${{ steps.build.outputs.image-tag }}
+          docker push $IMAGE:$TAG
+
   deploy:
-    # Запускается только после успешного завершения 'build_and_test'
-    needs: build_and_test 
+    needs: build_and_test
     runs-on: ubuntu-latest
-    environment: Production
-    
+    environment: production
     steps:
-      - name: Checkout Code 🛎️
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy Bot 🚀
-        # В этом шаге вы должны добавить реальную логику развертывания.
-        # Это может быть SSH-подключение к серверу, развертывание в Docker или на облачной платформе.
+      - name: Deploy to Kubernetes
+        env:
+          KUBECONFIG: ${{ secrets.KUBECONFIG_BASE64 }}
         run: |
-          echo "Начало развертывания..."
-          # Пример команды для удаленного запуска или обновления:
-          # ssh user@your_server.com 'cd /path/to/bot && git pull && docker-compose up -d'
-          
-          # Если вы используете секретный токен бота, вы можете получить его так:
-          echo "Секретный токен доступен как переменная окружения"
-          echo "Токен: ${{ secrets.BOT_TOKEN }}"
-          
-          echo "Развертывание завершено."
+          echo "$KUBECONFIG" | base64 -d > ~/.kube/config
+          kubectl set image deploy/mybot-deploy mybot=ghcr.io/${{ github.repository_owner }}/mybot:${{ needs.build_and_test.outputs.image-tag }}
+          kubectl rollout status deployment/mybot-deploy
