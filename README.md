@@ -1,5 +1,6 @@
 Solid Giggle
-
+# [![Node CI](https://github.com/changesets/action/actions/workflows/ci.yml/badge.svg)](https://github.com/changesets/action/actions/workflows/ci.yml)
+/
 > **Solid Giggle** – современный одностраничный сайт (SPA) для небольших бизнесов, созданный с использованием HTML5, CSS3 (Flexbox/Grid) и чистого ES6+.  
 > Демонстрация: <https://ivanm696.github.io/solid-giggle/>
 
