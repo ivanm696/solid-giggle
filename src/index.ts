@@ -58,4 +58,4 @@ export class MyWorkflow extends WorkflowEntrypoint<Env, Params> {
       },
     );
   }
-}
+  }
