@@ -1,0 +1,14 @@
+[flake8]
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    migrations,
+    contexts.json,
+    prompts_message_ids.json,
+    *.json  # если хочешь исключить все json
+
+max-line-length = 88          # стандарт для black
+extend-ignore = E203, W503    # часто конфликтуют с black
+ignore = E501                 # если хочешь временно отключить слишком длинные строки
