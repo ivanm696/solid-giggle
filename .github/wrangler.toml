@@ -1,0 +1,12 @@
+name = "solid-giggle-processor"
+main = "src/index.ts"          # ← здесь указывается путь
+compatibility_date = "2026-01-01"
+
+# Если используешь R2 для PDF-файлов
+[[r2_buckets]]
+binding = "DOC_BUCKET"
+bucket_name = "solid-giggle-docs"
+
+# Для Browser Rendering (PDF-генерация)
+[[browser]]
+binding = "MY_BROWSER"
