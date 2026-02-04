@@ -1,53 +1,66 @@
-@@ -1,52 +1 @@
 <!DOCTYPE html>
 <html lang="ru" prefix="og: http://ogp.me/ns#">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Solid Giggle – инновационный сервис</title>
 
   <!-- Favicon -->
-  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-  <!-- Open Graph (для соцсетей) -->
+  <!-- Open Graph / Соцсети -->
   <meta property="og:title" content="Solid Giggle – инновационный сервис">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://ivanm696.github.io/solid-giggle/">
   <meta property="og:image" content="https://ivanm696.github.io/solid-giggle/img/preview.jpg">
   <meta property="og:description" content="Краткое описание вашего проекта.">
+  <meta property="og:locale" content="ru_RU">
 
-  <!-- Styles -->
+  <!-- Twitter Cards (опционально) -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Solid Giggle – инновационный сервис">
+  <meta name="twitter:description" content="Краткое описание вашего проекта.">
+  <meta name="twitter:image" content="https://ivanm696.github.io/solid-giggle/img/preview.jpg">
+
+  <!-- Основные стили -->
   <link rel="stylesheet" href="css/main.min.css">
-  
-  <!-- Preload fonts (если используете Google Fonts) -->
-  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" as="style" onload="this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap"></noscript>
+
+  <!-- Google Fonts (если используешь Roboto) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+
 </head>
 <body>
 
   <header>
-    <nav>
-      <!-- Ваши навигационные ссылки -->
-      <a href="/" aria-label="Главная">Главная</a>
+    <nav aria-label="Основная навигация">
+      <a href="/" aria-label="Перейти на главную">Главная</a>
+      <!-- Добавь остальные ссылки по мере необходимости -->
+      <!-- <a href="#features">Возможности</a> -->
+      <!-- <a href="#about">О проекте</a> -->
+      <!-- <a href="#contact">Контакты</a> -->
     </nav>
   </header>
 
   <main>
     <section id="hero">
       <h1>Solid Giggle</h1>
-      <p>Описание проекта...</p>
+      <p>Инновационный сервис для анализа, генерации и автоматизации</p>
       <a href="#features" class="btn primary">Узнать больше</a>
     </section>
 
-    <!-- Остальные секции -->
+    <!-- Здесь добавляй остальные секции по мере необходимости -->
+    <!-- <section id="features">...</section> -->
+    <!-- <section id="about">...</section> -->
   </main>
 
   <footer>
-    <p>&copy; 2025 Solid Giggle. Все права защищены.</p>
+    <p>&copy; 2025–2026 Solid Giggle. Все права защищены.</p>
   </footer>
 
-  <!-- Scripts -->
+  <!-- Основной скрипт (отложенная загрузка) -->
   <script src="js/main.min.js" defer></script>
 </body>
 </html>
