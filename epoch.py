@@ -30,3 +30,26 @@ def compile_epoch(title="Эпоха XIII", logfile="epoch_xiii.md"):
         f.write(f"🌀 Сгенерировано: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
 
     print(f"📜 Летопись эпохи собрана: {logfile}")
+    cat <<EOF > index.js
+export default {
+  async fetch(request, env) {
+    const id = env.X_BUILDER_DO.idFromName('Epoch_55');
+    const obj = env.X_BUILDER_DO.get(id);
+    return await obj.generateBinaryScroll(request);
+  }
+};
+
+export class XBuilderDO {
+  constructor(state) { this.state = state; }
+  async generateBinaryScroll(request) {
+    const timestamp = Date.now();
+    const drift = (timestamp % 60000 > 54000);
+    if (drift) {
+      let memoryLeak = crypto.getRandomValues(new Uint8Array(256));
+      await this.state.storage.put("bin_scroll_" + timestamp, memoryLeak);
+      return new Response("Error 500: Binary Intersection", { status: 500 });
+    }
+    return new Response("Wait for 55s", { status: 200 });
+  }
+}
+EOF
