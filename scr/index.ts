@@ -1,49 +1,61 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 
-// Настройки окружения (из твоего wrangler.toml)
 type Env = {
+  // Add your bindings here, e.g. Workers KV, D1, Workers AI, etc.
   MY_WORKFLOW: Workflow;
-  DOC_BUCKET: R2Bucket;
-  MY_BROWSER: any;
 };
 
+// User-defined params passed to your workflow
 type Params = {
   email: string;
   metadata: Record<string, string>;
 };
 
-// 1. КЛАСС WORKFLOW (Твоя новая логика)
 export class MyWorkflow extends WorkflowEntrypoint<Env, Params> {
   async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
-    await step.do('log start', async () => {
-      console.log("Workflow запущен для:", event.payload.email);
+    // Can access bindings on `this.env`
+    // Can access params on `event.payload`
+
+    const files = await step.do('my first step', async () => {
+      // Fetch a list of files from $SOME_SERVICE
+      return {
+        files: [
+          'doc_7392_rev3.pdf',
+          'report_x29_final.pdf',
+          'memo_2024_05_12.pdf',
+          'file_089_update.pdf',
+          'proj_alpha_v2.pdf',
+          'data_analysis_q2.pdf',
+          'notes_meeting_52.pdf',
+          'summary_fy24_draft.pdf',
+        ],
+      };
     });
-    
-    // Здесь можно добавить логику работы с R2 или Browser
+
+    const apiResponse = await step.do('some other step', async () => {
+      let resp = await fetch('https://api.cloudflare.com/client/v4/ips');
+      return await resp.json<any>();
+    });
+
+    await step.sleep('wait on something', '1 minute');
+
+    await step.do(
+      'make a call to write that could maybe, just might, fail',
+      // Define a retry strategy
+      {
+        retries: {
+          limit: 5,
+          delay: '5 second',
+          backoff: 'exponential',
+        },
+        timeout: '15 minutes',
+      },
+      async () => {
+        // Do stuff here, with access to the state from our previous steps
+        if (Math.random() > 0.5) {
+          throw new Error('API call to $STORAGE_SYSTEM failed');
+        }
+      },
+    );
   }
-}
-
-// 2. ОСНОВНОЙ ОБРАБОТЧИК (Твоя автоматизация + запуск Workflow)
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    // --- ТВОЯ СУЩЕСТВУЮЩАЯ ЛОГИКА ДЛЯ BOT.TXT ---
-    if (url.pathname === '/bot.txt') {
-      return new Response("User-agent: *\nDisallow: /", {
-        headers: { "Content-Type": "text/plain" }
-      });
-    }
-
-    // --- ЗАПУСК НОВОГО WORKFLOW ---
-    if (url.pathname === '/start-task') {
-      const instance = await env.MY_WORKFLOW.create({
-        params: { email: "admin@bot.com", metadata: { type: "auto" } }
-      });
-      return new Response(`Процесс запущен! ID: ${instance.id}`);
-    }
-
-    // Ответ по умолчанию
-    return new Response("Система работает. Доступные пути: /bot.txt, /start-task");
-  },
-};
+                                      }
