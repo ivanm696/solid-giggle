@@ -1,0 +1,4 @@
+# .codeql.yml
+paths-ignore:
+  - '**/settings_example.py'
+  - 'other/problem/file.py'   # если нужно

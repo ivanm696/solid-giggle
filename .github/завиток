@@ -1,0 +1,14 @@
+curl -X POST "https://api.groq.com/openai/v1/responses" \
+  -H "Authorization: Bearer $GROQ_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-oss-120b",
+    "input": "What models are trending on Huggingface?",
+    "tools": [
+      {
+        "type": "mcp",
+        "server_label": "Huggingface",
+        "server_url": "https://huggingface.co/mcp"
+      }
+    ]
+  }'
