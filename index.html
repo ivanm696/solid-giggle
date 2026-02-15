@@ -1,52 +1,142 @@
-index xtml
+<!DOCTYPE html>
 <html lang="ru" prefix="og: http://ogp.me/ns#">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Solid Giggle – инновационный сервис</title>
 
-  <!-- Favicon -->
   <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-  <!-- Open Graph (для соцсетей) -->
   <meta property="og:title" content="Solid Giggle – инновационный сервис">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://ivanm696.github.io/solid-giggle/">
   <meta property="og:image" content="https://ivanm696.github.io/solid-giggle/img/preview.jpg">
-  <meta property="og:description" content="Краткое описание вашего проекта.">
+  <meta property="og:description" content="Анализ, генерация и автоматизация процессов в одном месте.">
 
-  <!-- Styles -->
-  <link rel="stylesheet" href="css/main.min.css">
-  
-  <!-- Preload fonts (если используете Google Fonts) -->
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" as="style" onload="this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap"></noscript>
+
+  <style>
+    :root {
+      --primary: #2563eb;    /* Синий */
+      --secondary: #1e40af;  /* Темно-синий */
+      --bg: #f8f9fa;         /* Светлый фон */
+      --text: #1f2937;       /* Темный текст */
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: 'Roboto', sans-serif;
+      line-height: 1.6;
+      background: var(--bg);
+      color: var(--text);
+      display: flex; 
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* Навигация */
+    header {
+      background: #fff;
+      padding: 1rem 2rem;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+      position: sticky; top: 0; z-index: 10;
+    }
+    nav {
+      max-width: 1000px; margin: 0 auto;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    nav a { text-decoration: none; color: var(--text); font-weight: 700; margin-left: 15px; }
+    nav a:hover { color: var(--primary); }
+
+    /* Герой (Hero) блок */
+    #hero {
+      background: linear-gradient(135deg, #e0e7ff 0%, #f3f4f6 100%);
+      text-align: center;
+      padding: 5rem 1rem;
+    }
+    #hero h1 { font-size: 2.5rem; margin-bottom: 1rem; color: var(--secondary); }
+    #hero p { font-size: 1.2rem; max-width: 600px; margin: 0 auto 2rem; }
+
+    .btn.primary {
+      background: var(--primary); color: #fff;
+      padding: 0.8rem 2rem; border-radius: 6px;
+      text-decoration: none; transition: 0.3s;
+    }
+    .btn.primary:hover { background: var(--secondary); }
+
+    /* Секции */
+    section { max-width: 1000px; margin: 3rem auto; padding: 0 1rem; }
+    h2 { text-align: center; margin-bottom: 2rem; color: var(--secondary); }
+
+    /* Сетка карточек */
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem;
+    }
+    .card {
+      background: #fff; padding: 2rem; border-radius: 8px;
+      text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
+    .icon { font-size: 2.5rem; display: block; margin-bottom: 10px; }
+
+    /* Футер */
+    footer { background: #111827; color: #9ca3af; text-align: center; padding: 2rem; margin-top: auto; }
+  </style>
 </head>
+
 <body>
 
   <header>
-    <nav>
-      <!-- Ваши навигационные ссылки -->
-      <a href="/" aria-label="Главная">Главная</a>
+    <nav aria-label="Основная навигация">
+      <a href="/" style="font-size: 1.2rem;">Solid Giggle</a>
+      <div>
+        <a href="#features">Возможности</a>
+        <a href="#about">О нас</a>
+      </div>
     </nav>
   </header>
 
   <main>
     <section id="hero">
       <h1>Solid Giggle</h1>
-      <p>Описание проекта...</p>
+      <p>Инновационный сервис для анализа, генерации и автоматизации ваших идей.</p>
+      <br>
       <a href="#features" class="btn primary">Узнать больше</a>
     </section>
 
-    <!-- Остальные секции -->
+    <section id="features">
+      <h2>Почему мы?</h2>
+      <div class="grid">
+        <div class="card">
+          <span class="icon">🚀</span>
+          <h3>Скорость</h3>
+          <p>Молниеносная обработка данных.</p>
+        </div>
+        <div class="card">
+          <span class="icon">💡</span>
+          <h3>Инновации</h3>
+          <p>Используем новейшие алгоритмы.</p>
+        </div>
+        <div class="card">
+          <span class="icon">🔒</span>
+          <h3>Защита</h3>
+          <p>Ваши данные в безопасности.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="about">
+      <h2>О проекте</h2>
+      <p style="text-align: center;">Мы создаем инструменты, которые упрощают рутину и позволяют вам сосредоточиться на творчестве.</p>
+    </section>
   </main>
 
   <footer>
     <p>&copy; 2025 Solid Giggle. Все права защищены.</p>
   </footer>
 
-  <!-- Scripts -->
   <script src="js/main.min.js" defer></script>
 </body>
 </html>
