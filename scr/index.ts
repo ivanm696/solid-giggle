@@ -1,45 +1,47 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 
-// Определяем типы для окружения
-export interface Env {
+type Env = {
+  // Add your bindings here, e.g. Workers KV, D1, Workers AI, etc.
   MY_WORKFLOW: Workflow;
-}
+};
 
-// Параметры, которые мы передаем боту
+// User-defined params passed to your workflow
 type Params = {
   email: string;
   metadata: Record<string, string>;
 };
 
-// 1. Класс Workflow - логика нашего "хихикающего" процесса
 export class MyWorkflow extends WorkflowEntrypoint<Env, Params> {
   async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
-    const payload = event.payload;
+    // Can access bindings on `this.env`
+    // Can access params on `event.payload`
 
-    // Шаг 1: Получаем список файлов (бот начинает изучать код)
-    const filesData = await step.do('анализ файлов', async () => {
-      console.log(`Бот анализирует файлы для: ${payload.email}`);
+    const files = await step.do('my first step', async () => {
+      // Fetch a list of files from $SOME_SERVICE
       return {
         files: [
-          'logic_v1.py',
-          'bot.txt',
-          'secret_sauce.js'
+          'doc_7392_rev3.pdf',
+          'report_x29_final.pdf',
+          'memo_2024_05_12.pdf',
+          'file_089_update.pdf',
+          'proj_alpha_v2.pdf',
+          'data_analysis_q2.pdf',
+          'notes_meeting_52.pdf',
+          'summary_fy24_draft.pdf',
         ],
       };
     });
 
-    // Шаг 2: Внешний запрос (бот сверяется с базой знаний Cloudflare)
-    const apiResponse = await step.do('проверка IP', async () => {
-      const resp = await fetch('https://api.cloudflare.com/client/v4/ips');
+    const apiResponse = await step.do('some other step', async () => {
+      let resp = await fetch('https://api.cloudflare.com/client/v4/ips');
       return await resp.json<any>();
     });
 
-    // Шаг 3: Пауза (бот хихикает над кодом 1 минуту)
-    await step.sleep('бот ушел на перерыв', '1 minute');
+    await step.sleep('wait on something', '1 minute');
 
-    // Шаг 4: Попытка записи с ретраями (если упадет - попробует снова)
     await step.do(
-      'финальный вердикт',
+      'make a call to write that could maybe, just might, fail',
+      // Define a retry strategy
       {
         retries: {
           limit: 5,
@@ -49,30 +51,11 @@ export class MyWorkflow extends WorkflowEntrypoint<Env, Params> {
         timeout: '15 minutes',
       },
       async () => {
+        // Do stuff here, with access to the state from our previous steps
         if (Math.random() > 0.5) {
-          throw new Error('Бот слишком сильно смеялся и упал!');
+          throw new Error('API call to $STORAGE_SYSTEM failed');
         }
-        return { success: true, message: "Код одобрен хихиканьем!" };
       },
     );
   }
-}
-
-// 2. Входная точка для запуска Workflow через HTTP
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    
-    if (url.pathname === "/start") {
-      const instance = await env.MY_WORKFLOW.create({
-        params: {
-          email: "ivan@example.com",
-          metadata: { project: "solid-giggle" }
-        }
-      });
-      return Response.json({ id: instance.id, status: "Бот запущен!" });
-    }
-
-    return new Response("Используйте /start для активации бота");
   }
-};
