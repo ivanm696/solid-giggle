@@ -7,6 +7,7 @@ const navLinks = [
   { href: "#pulse", label: "Пульс" },
   { href: "#chant", label: "Гимн" },
   { href: "#scrolls", label: "Свитки" },
+  { href: "#bot", label: "Бот" },
   { href: "#engine", label: "Двигатель" },
 ]
 
