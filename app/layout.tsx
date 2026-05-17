@@ -1,24 +1,38 @@
-import type { Metadata } from "next"
-import { Roboto } from "next/font/google"
+import type { Metadata, Viewport } from "next"
+import { Roboto, Playfair_Display, JetBrains_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 const roboto = Roboto({
   weight: ["400", "700"],
   subsets: ["latin", "cyrillic"],
-  variable: "--font-roboto",
+})
+
+const playfair = Playfair_Display({
+  weight: ["400", "700"],
+  subsets: ["latin", "cyrillic"],
+})
+
+const jetbrainsMono = JetBrains_Mono({
+  weight: ["400", "700"],
+  subsets: ["latin", "cyrillic"],
 })
 
 export const metadata: Metadata = {
-  title: "Solid Giggle – инновационный сервис",
-  description: "Краткое описание вашего проекта.",
+  title: "Nicu — Живой свиток импровизации",
+  description:
+    "Живой свиток импровизации, диагностики и музыкальных реликвий. Solid Giggle Engine.",
   openGraph: {
-    title: "Solid Giggle – инновационный сервис",
+    title: "Nicu — Живой свиток импровизации",
     type: "website",
     url: "https://ivanm696.github.io/solid-giggle/",
-    images: ["/img/preview.jpg"],
-    description: "Краткое описание вашего проекта.",
+    description:
+      "Живой свиток импровизации, диагностики и музыкальных реликвий.",
   },
+}
+
+export const viewport: Viewport = {
+  themeColor: "#0a0a0c",
 }
 
 export default function RootLayout({
@@ -27,8 +41,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="ru">
-      <body className={`${roboto.variable} font-sans antialiased`}>
+    <html lang="ru" className="dark">
+      <body className={`${roboto.className} ${playfair.className} ${jetbrainsMono.className} font-sans antialiased`}>
         {children}
         <Analytics />
       </body>
