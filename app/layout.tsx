@@ -10,6 +10,7 @@ const roboto = Roboto({
 })
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://ivanm696.github.io"),
   title: "Solid Giggle – инновационный сервис",
   description: "Краткое описание вашего проекта.",
   openGraph: {
@@ -27,8 +28,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="ru">
-      <body className={`${roboto.variable} font-sans antialiased`}>
+    <html lang="ru" className="bg-background">
+      <body className={`${roboto.variable} font-sans antialiased bg-background text-foreground`}>
         {children}
         <Analytics />
       </body>
