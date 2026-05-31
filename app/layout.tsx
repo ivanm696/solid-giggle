@@ -41,7 +41,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="ru" className="dark">
+    <html lang="ru" className="dark bg-background">
       <body className={`${roboto.className} ${playfair.className} ${jetbrainsMono.className} font-sans antialiased`}>
         {children}
         <Analytics />

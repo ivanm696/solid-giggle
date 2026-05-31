@@ -165,7 +165,7 @@ export function SvitokGenerator() {
             ) : (
               <div className="h-full min-h-[300px] border border-dashed border-border rounded-lg flex flex-col items-center justify-center gap-3 text-muted-foreground">
                 <svg
-                  className="w-8 h-8 opacity-40"
+                  className="w-12 h-12 opacity-40 text-muted-foreground"
                   viewBox="0 0 24 24"
                   fill="none"
                   aria-hidden="true"
