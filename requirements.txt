@@ -1,33 +1,18 @@
-# Django framework
-Django>=4.2,<5
+# Telegram bot
+aiogram>=3.0.0
 
-# REST API (optional, comment out if not needed)
-djangorestframework>=3.15,<4
+# Google Gemini AI
+google-generativeai>=0.7.0
 
-# Database driver – выберите один
-psycopg2-binary>=2.9        # PostgreSQL
-# mysqlclient>=2.2           # MySQL
-# pymysql>=1.1               # MySQL‑compatible pure‑Python driver
-# cx_Oracle>=8.3             # Oracle
+# HTTP requests
+requests>=2.31.0
+aiohttp>=3.9.0
 
-# Image processing
-Pillow>=10.4
+# HTML parsing
+beautifulsoup4>=4.12.0
 
-# Environment variables handling
-python-dotenv>=1.0
+# Database (SQLAlchemy)
+sqlalchemy>=2.0.0
 
-# Production WSGI server
-gunicorn>=22.0
-
-# Static files handling (WhiteNoise)
-whitenoise>=6.7
-
-# CORS handling (optional)
-django-cors-headers>=4.3
-
-# Background tasks (optional)
-celery[redis]>=5.4
-redis>=5.0
-
-# Helper for .env parsing (alternative to python-dotenv)
-django-environ>=0.11
+# Environment variables
+python-dotenv>=1.0.0
