@@ -1,7 +1,7 @@
 {
   "name": "solid-giggle",
   "version": "0.1.0",
-  "description": "Solid Giggle – инновационный сервис",
+  "description": "Solid Giggle — Telegram бот на базе Gemini AI",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,7 +10,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@vercel/analytics": "^1.6.1",
     "next": "^15.2.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
