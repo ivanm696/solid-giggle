@@ -132,7 +132,7 @@ export function BotSection() {
             {"Telegram Bot"}
           </p>
           <h2 className="font-serif text-3xl md:text-4xl text-foreground mb-4 text-balance">
-            {"@SolidGiggle_bot"}
+            {"@GiggleBrainForever_bot"}
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto leading-relaxed text-pretty">
             {"ИИ-помощник в Telegram с Gemini, генерацией изображений, системой промптов и полным управлением через команды."}
@@ -244,7 +244,7 @@ export function BotSection() {
         {/* CTA */}
         <div className="text-center mt-12">
           <a
-            href="https://t.me/SolidGiggle_bot"
+            href="https://t.me/GiggleBrainForever_bot"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-8 py-3 bg-primary text-primary-foreground rounded font-medium text-sm uppercase tracking-widest hover:bg-primary/90 transition-colors"
