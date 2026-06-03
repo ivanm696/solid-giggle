@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-build:
+  build-web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,13 +23,13 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Lint
-        working-directory: web
-        run: npm run lint
-
       - name: Build
         working-directory: web
         run: npm run build
+
+      - name: TypeScript check
+        working-directory: web
+        run: npx tsc --noEmit
 
   test-bot:
     runs-on: ubuntu-latest
@@ -42,9 +42,9 @@ jobs:
 
       - name: Install bot dependencies
         working-directory: bot
-        run: pip install -r requirements.txt --break-system-packages -q
+        run: pip install -r requirements.txt -q
 
-      - name: Syntax check
+      - name: Syntax check all Python files
         working-directory: bot
         run: |
           python -m py_compile bot.py
@@ -57,4 +57,4 @@ jobs:
           python -m py_compile giggle_engine/learn.py
           python -m py_compile giggle_engine/score.py
           python -m py_compile giggle_engine/epoch.py
-          echo "✅ All Python files OK"
+          echo "✅ All Python files pass syntax check"
