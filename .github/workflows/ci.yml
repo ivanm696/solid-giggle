@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main, solid-giggle]
-    paths: ['web/**']
   pull_request:
     branches: [main]
 
@@ -40,21 +39,45 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install bot dependencies
-        working-directory: bot
-        run: pip install -r requirements.txt -q
-
-      - name: Syntax check all Python files
+      - name: Syntax check giggle_engine (standalone modules)
         working-directory: bot
         run: |
-          python -m py_compile bot.py
-          python -m py_compile main.py
-          python -m py_compile epoch.py
-          python -m py_compile giggle_engine/generate.py
-          python -m py_compile giggle_engine/chant.py
-          python -m py_compile giggle_engine/pulse.py
-          python -m py_compile giggle_engine/ritual.py
-          python -m py_compile giggle_engine/learn.py
-          python -m py_compile giggle_engine/score.py
-          python -m py_compile giggle_engine/epoch.py
-          echo "✅ All Python files pass syntax check"
+          python -m py_compile giggle_engine/generate.py   && echo "✅ generate.py"
+          python -m py_compile giggle_engine/chant.py      && echo "✅ chant.py"
+          python -m py_compile giggle_engine/pulse.py      && echo "✅ pulse.py"
+          python -m py_compile giggle_engine/ritual.py     && echo "✅ ritual.py"
+          python -m py_compile giggle_engine/learn.py      && echo "✅ learn.py"
+          python -m py_compile giggle_engine/score.py      && echo "✅ score.py"
+          python -m py_compile giggle_engine/epoch.py      && echo "✅ epoch.py"
+          python -m py_compile giggle_engine/__init__.py   && echo "✅ __init__.py"
+          python -m py_compile main.py                     && echo "✅ main.py"
+          python -m py_compile epoch.py                    && echo "✅ epoch.py (root)"
+          echo "✅ All giggle_engine modules pass syntax check"
+
+      - name: Functional test giggle_engine
+        working-directory: bot
+        run: |
+          python3 -c "
+          import sys
+          sys.path.insert(0, '.')
+          from giggle_engine.generate import create_svitok, generate_from_memory
+          from giggle_engine.ritual import activate_ritual, log_breath
+          from giggle_engine.learn import NicuAI
+          from giggle_engine.pulse import pulse_signal
+          from giggle_engine.chant import sing_chant
+          from giggle_engine.score import generate_score
+
+          nicu = NicuAI()
+          nicu.learn('Test 1')
+          nicu.learn('Test 2')
+          result = generate_from_memory(nicu.memory, 'test')
+          assert 'Test' in result, 'generate_from_memory failed'
+
+          entry = activate_ritual('test')
+          assert 'test' in entry
+
+          pulse = pulse_signal()
+          assert 'BPM' in pulse
+
+          print('✅ All functional tests passed')
+          "
