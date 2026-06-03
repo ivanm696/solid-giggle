@@ -1,87 +1,80 @@
-Solid Giggle
-# [![Node CI](https://github.com/changesets/action/actions/workflows/ci.yml/badge.svg)]IF user uploads .mol -> AI analyze -> AI generate website,
-твой Solid-giggle Automation.yml
-> **Solid Giggle** – современный одностраничный сайт (SPA) для небольших бизнесов, созданный с использованием HTML5, CSS3 (Flexbox/Grid) и чистого ES6+.  
-> Демонстрация: <https://helpwanted.dev/projects/ivanm696/solid-giggle>
+# ⚡ Solid Giggle
 
-![CI](https://img.shields.io/github/actions/workflow/status/ivanm696/solid-giggle/ci.yml?label=CI&logo=github)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Stars](https://img.shields.io/github/stars/ivanm696/solid-giggle?style=social)
+> Telegram бот на базе Gemini AI + Next.js веб-интерфейс + Cloudflare Worker
 
-## 📸 Demo
+## 📁 Структура проекта
 
-![Solid Giggle in Action](assets/screenshot.png)
+```
+solid-giggle/
+├── bot/                        # 🐍 Python Telegram бот
+│   ├── bot.py                  # Основной файл бота (aiogram)
+│   ├── main.py                 # Точка входа
+│   ├── epoch.py                # Компиляция эпох
+│   ├── giggle_engine/          # Ядро движка
+│   │   ├── generate.py         # Генерация свитков
+│   │   ├── chant.py            # Гимны/чанты
+│   │   ├── pulse.py            # Пульс системы
+│   │   ├── ritual.py           # Ритуалы
+│   │   ├── learn.py            # NicuAI обучение
+│   │   ├── score.py            # Партитуры
+│   │   └── epoch.py            # Эпохи
+│   ├── requirements.txt        # Python зависимости
+│   └── config_example.py       # Шаблон конфига (скопируй в config.py)
+│
+├── web/                        # ⚛️  Next.js фронтенд
+│   ├── app/                    # App Router страницы
+│   ├── components/             # React компоненты
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── worker/                     # ☁️  Cloudflare Worker
+│   ├── src/index.ts
+│   └── wrangler.toml
+│
+├── assets/                     # Изображения и медиа
+├── README.md
+└── LICENSE
+```
 
-## ✨ Features
-
-- 🎯 **Single‑Page Layout** – плавный скролл и переходы между секциями.
-- ⚡ **Адаптивный дизайн** – от мобильных устройств до десктопов.
-- 🧩 **Модульные компоненты** – легко расширять функциональность.
-- 🚀 **PWA‑подход** – кэширование ассетов, офлайн‑режим.
-- 📊 **Аналитика** – готовый интегрируемый модуль Google Analytics / Yandex.Metrica.
-- 📬 **Форма обратной связи** – отправка сообщений через API (или mock‑сервис).
-
-## 🚀 Quick Start
-
-> **Для локальной разработки** (если используется Vite/Parcel/ESBuild):
+## 🤖 Бот — быстрый старт
 
 ```bash
-git clone https://github.com/ivanm696/solid-giggle.git
-cd solid-giggle
-npm i          # установим зависимости (если есть)
-npm run dev    # запустим dev‑сервер
+cd bot
+pip install -r requirements.txt
 
-Для развертывания на GitHub Pages (если не настроен CI):
+# Скопируй конфиг и заполни токены
+cp config_example.py config.py
+nano config.py
 
-npm run build   # собрать статические файлы
-npm run deploy  # git push gh-pages
+python main.py
+```
 
-Если у вас нет
-package.json
+## 🌐 Веб — быстрый старт
 
-, просто откройте
-index.html
+```bash
+cd web
+npm install
+npm run dev
+```
 
-в браузере – сайт полностью статический.
+## ☁️ Worker — деплой
 
-🛠️ Технологический стек
-Категория	Технологии
-Фронтенд	HTML5, CSS3 (Flexbox, Grid, CSS‑переменные)
-Скрипты	ES6+ (fetch, IntersectionObserver)
-Сборка	Vite (или любой другой сборщик)
-CI	GitHub Actions
-Деплой	GitHub Pages
-📄 Лицензия
-MIT – см. файл
-LICENSE
+```bash
+cd worker
+npm install -g wrangler
+wrangler deploy
+```
 
-.
+## ⚙️ Конфиг бота (`bot/config.py`)
 
-🤝 Contributing
-Мы всегда открыты к улучшениям!
+```python
+class Config:
+    BOT_TOKEN = "твой_токен_от_BotFather"
+    CREATOR = 1850678884  # твой Telegram ID
+    PROMPTS_CHANNEL = -100xxxxxxxxx
+    LOG_CHAT = -100xxxxxxxxx
+    SUPPORT_CHAT = -100xxxxxxxxx
+    MAIN_CHAT = -100xxxxxxxxx
+```
 
-Сделайте
-fork
-
-репозитория.
-Создайте ветку
-feat/your-feature
-
-.
-Добавьте тесты (если есть).
-git push origin feat/your-feature
-
-.
-Откройте Pull Request.
-Пожалуйста, следуйте нашему Style Guide и добавляйте описание изменений в комментарии к PR.
-
-📬 Связь
-📧 Email:
-info@solidgiggle.com
-
-🐦 Twitter: https://twitter.com/solidgiggle
-🗨️ Discord:
-solidgiggle#1234
-
-Спасибо за интерес к проекту!
-Если у вас возникли вопросы, пишите в Issues – будем рады помочь.
+> ⚠️ `config.py` добавлен в `.gitignore` — никогда не попадёт в репо.
