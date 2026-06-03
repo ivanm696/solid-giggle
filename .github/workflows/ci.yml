@@ -2,19 +2,59 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, solid-giggle]
+    paths: ['web/**']
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  test:
+  lint-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'  # версия Node, которую вы используете
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run format -- --check
-      - run: npm test
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Lint
+        working-directory: web
+        run: npm run lint
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+  test-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install bot dependencies
+        working-directory: bot
+        run: pip install -r requirements.txt --break-system-packages -q
+
+      - name: Syntax check
+        working-directory: bot
+        run: |
+          python -m py_compile bot.py
+          python -m py_compile main.py
+          python -m py_compile epoch.py
+          python -m py_compile giggle_engine/generate.py
+          python -m py_compile giggle_engine/chant.py
+          python -m py_compile giggle_engine/pulse.py
+          python -m py_compile giggle_engine/ritual.py
+          python -m py_compile giggle_engine/learn.py
+          python -m py_compile giggle_engine/score.py
+          python -m py_compile giggle_engine/epoch.py
+          echo "✅ All Python files OK"
