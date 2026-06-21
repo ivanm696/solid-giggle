@@ -1,28 +1,23 @@
 import asyncio
 import json
-import math
-import os
 import re
-from enum import Enum
 import io
+from enum import Enum
 
 import aiogram
-import google.generativeai as genai
-import requests
-from aiogram import Bot, Dispatcher, types
-from aiogram import F
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 from bs4 import BeautifulSoup
+import aiohttp
 
+# Внутренние импорты проекта Solid Giggle
 from funcs_for_resp import *
 import generate
 from config import Config
-from aiohttp import ClientSession
-import aiohttp
 from ai import gemini
 from db import get_db, create_tables
 from db.user import User
@@ -30,7 +25,12 @@ from db.api_key import APIKey
 from db.prompt import Prompt
 from utils.prompts import add_or_update_prompt
 
+# Инициализация БД
 create_tables()
+
+# Переносим работу с контекстами и ID реплаев в БД, чтобы не было гонки данных и зависаний файлов
+# Для этого динамически расширим/проверим таблицы или используем сериализацию в User, 
+# но для сохранения структуры добавим хелперы работы с сессией БД.
 
 token = Config.BOT_TOKEN
 bot = Bot(token=token)
@@ -40,32 +40,17 @@ creator = Config.CREATOR
 prompts_channel = Config.PROMPTS_CHANNEL
 log_chat = Config.LOG_CHAT
 support_chat = Config.SUPPORT_CHAT
-safety_settings = Config.SAFETY_SETTINGS
 main_chat = Config.MAIN_CHAT
 
 safety_settings = [
-    {
-        "category": "HARM_CATEGORY_HARASSMENT",
-        "threshold": "BLOCK_NONE"
-    },
-    {
-        "category": "HARM_CATEGORY_HATE_SPEECH",
-        "threshold": "BLOCK_NONE"
-    },
-    {
-        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "threshold": "BLOCK_NONE"
-    },
-    {
-        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-        "threshold": "BLOCK_NONE"
-    }
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
 ]
-
 
 class MessageToAdmin(StatesGroup):
     text_message = State()
-
 
 class Permissions(str, Enum):
     CREATE_PROMPTS = 'create_prompts'
@@ -74,8 +59,11 @@ class Permissions(str, Enum):
     VIEW_OTHER = 'view_other'
     BOT_CONTROL = 'bot_control'
 
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ИСПРАВЛЕННЫЕ) ---
 
 def find_draw_strings(text):
+    if not text:
+        return [], ""
     draw_strings = re.findall(r'{{{(.*?)}}}', text, re.DOTALL)
     new_draw_strings = []
     for string in draw_strings:
@@ -85,125 +73,182 @@ def find_draw_strings(text):
         text = re.sub(r'}}}', '', text, flags=re.DOTALL)
         string = re.sub(r'\n', '', string)
         string = re.sub(r'%', '', string)
-        new_draw_strings.append(string)
+        new_draw_strings.append(string.strip())
     return new_draw_strings, text
 
-
-def find_strings():  # TODO: handle other strings but a `find_draw_strings()`
-    pass
-
-
 def find_prompt(text):
-    data = text.replace('/addprompt ', '')
-    data = data.replace('/addprompt@neuro_gemini_bot ', '')
+    # Очистка от команд бота
+    data = text.replace('/addprompt ', '').replace('/addprompt@neuro_gemini_bot ', '')
     data = data.split('|', maxsplit=3)
-    command = data[0]
-    name = data[1]
-    description = data[2]
-    prompt = data[3]
-    return command, name, description, prompt
+    # Защита от неполного ввода аргументов
+    while len(data) < 4:
+        data.append("")
+    return data[0].strip(), data[1].strip(), data[2].strip(), data[3].strip()
 
-
-def is_banned(id):
+def is_banned(user_id: int) -> bool:
     with get_db() as db:
-        user = db.get(User, id)
-        if user:
-            return user.banned
+        user = db.get(User, user_id)
+        return user.banned if user else False
 
-
-def is_admin(id):
+def is_admin(user_id: int) -> bool:
     with get_db() as db:
-        user = db.get(User, id)
-        if user:
-            return user.admin
+        user = db.get(User, user_id)
+        return user.admin if user else False
 
+# Полностью асинхронный парсер Telegraph (замена медленного requests)
+async def get_article_async(url: str) -> str:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=5) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    main_content = soup.find('article', class_='tl_article_content')
+                    if main_content:
+                        return '\n'.join([p.get_text() for p in main_content.find_all('p')]) + '\n'
+    except Exception:
+        pass
+    return ""
 
-def replace_links(match):
-    url = match.group(0)
-    return get_article(url)
-
-
-def get_article(url):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    main_content = soup.find('article', class_='tl_article_content')
-    main_text = ''
-    for element in main_content.find_all(['p']):
-        main_text += element.get_text() + '\n'
-    return main_text
-
-
-def read_telegraph(text):
+async def read_telegraph_async(text: str) -> str:
     pattern = r'(?:https:\/\/)?telegra\.ph\/[a-zA-Z0-9_-]+'
-    return re.sub(pattern, replace_links, text)
+    urls = re.findall(pattern, text)
+    for url in urls:
+        full_url = url if url.startswith('http') else f'https://{url}'
+        article_text = await get_article_async(full_url)
+        if article_text:
+            text = text.replace(url, article_text)
+    return text
 
-
-
-def is_user(id):
+# Асинхронные хелперы для контекста (хранятся в User.object или User.settings во избежание блокировок файлов)
+def get_user_context(user_id: int, command: str) -> list:
     with get_db() as db:
-        user = db.query(User).filter_by(id=id).first()
+        user = db.get(User, user_id)
+        if user and user.settings:
+            try:
+                sets = json.loads(user.settings)
+                return sets.get("contexts", {}).get(command, [])
+            except Exception:
+                pass
+    return []
+
+def save_user_context(user_id: int, command: str, context: list):
+    with get_db() as db:
+        user = db.get(User, user_id)
         if user:
-            return True
-        else:
-            return False
+            try:
+                sets = json.loads(user.settings) if user.settings else {}
+                if "contexts" not in sets:
+                    sets["contexts"] = {}
+                sets["contexts"][command] = context
+                user.settings = json.dumps(sets)
+                db.commit()
+            except Exception:
+                pass
 
-
-def sets_msg(id):
+def clear_user_contexts(user_id: int, command: str = None):
     with get_db() as db:
-        user = db.query(User).filter_by(id=id).first()
-        sets = json.loads(user.settings)
-    reset = types.InlineKeyboardButton(text='Кнопки сброса диалога:', callback_data='reset')
-    reset_on = types.InlineKeyboardButton(text='✅', callback_data='reset_on')
-    reset_off = types.InlineKeyboardButton(text='❎', callback_data='reset_off')
-    pictures_in_chat = types.InlineKeyboardButton(text='Генерация картинок в диалоге:',
-                                                  callback_data='pictures_in_dialog')
-    pictures_on = types.InlineKeyboardButton(text='✅', callback_data='pictures_on')
-    pictures_off = types.InlineKeyboardButton(text='❎', callback_data='pictures_off')
-    pictures_count = types.InlineKeyboardButton(text='Количество картинок в /sd:', callback_data='pictures_count')
-    pictures_count_1 = types.InlineKeyboardButton(text='1️⃣', callback_data='pictures_count_1')
-    pictures_count_2 = types.InlineKeyboardButton(text='2️⃣', callback_data='pictures_count_2')
-    pictures_count_3 = types.InlineKeyboardButton(text='3️⃣', callback_data='pictures_count_3')
-    pictures_count_4 = types.InlineKeyboardButton(text='4️⃣', callback_data='pictures_count_4')
-    pictures_count_5 = types.InlineKeyboardButton(text='5️⃣', callback_data='pictures_count_5')
-    imageai = types.InlineKeyboardButton(text='Нейросеть для генерации картинок в диалоге:', callback_data='imageai')
-    imageai_sd = types.InlineKeyboardButton(text='SD', callback_data='imageai_sd')
-    imageai_flux = types.InlineKeyboardButton(text='Flux', callback_data='imageai_flux')
+        user = db.get(User, user_id)
+        if user and user.settings:
+            try:
+                sets = json.loads(user.settings)
+                if "contexts" in sets:
+                    if command:
+                        sets["contexts"].pop(command, None)
+                    else:
+                        sets["contexts"] = {}
+                user.settings = json.dumps(sets)
+                db.commit()
+            except Exception:
+                pass
+
+# Логика трекинга ID сообщений ответа (чтобы реплаи не путались между юзерами)
+def register_message_reply(msg_id: int, user_id: int, command: str):
+    with get_db() as db:
+        user = db.get(User, user_id)
+        if user:
+            try:
+                sets = json.loads(user.settings) if user.settings else {}
+                if "reply_ids" not in sets:
+                    sets["reply_ids"] = {}
+                sets["reply_ids"][str(msg_id)] = command
+                user.settings = json.dumps(sets)
+                db.commit()
+            except Exception:
+                pass
+
+def find_command_by_reply(user_id: int, msg_id: int) -> str:
+    with get_db() as db:
+        user = db.get(User, user_id)
+        if user and user.settings:
+            try:
+                sets = json.loads(user.settings)
+                return sets.get("reply_ids", {}).get(str(msg_id), "")
+            except Exception:
+                pass
+    return ""
+
+def sets_msg(user_id: int):
+    with get_db() as db:
+        user = db.get(User, user_id)
+        # Дефолтные настройки, если юзер новый
+        sets = {"reset": True, "pictures_in_dialog": False, "pictures_count": 1, "imageai": "sd"}
+        if user and user.settings:
+            try:
+                loaded = json.loads(user.settings)
+                # Извлекаем только интерфейсные настройки, игнорируя системные ключи контекстов
+                for k in sets.keys():
+                    if k in loaded:
+                        sets[k] = loaded[k]
+            except Exception:
+                pass
+
     markup = types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [reset],
-            [reset_on, reset_off],
-            [pictures_in_chat],
-            [pictures_on, pictures_off],
-            [pictures_count],
-            [pictures_count_1, pictures_count_2, pictures_count_3, pictures_count_4, pictures_count_5],
-            [imageai],
-            [imageai_sd, imageai_flux]
+            [types.InlineKeyboardButton(text='Кнопки сброса диалога:', callback_data='reset')],
+            [
+                types.InlineKeyboardButton(text='✅' if sets["reset"] else ' ', callback_data='reset_on'),
+                types.InlineKeyboardButton(text=' ' if sets["reset"] else '微', callback_data='reset_off')
+            ],
+            [types.InlineKeyboardButton(text='Генерация картинок в диалоге:', callback_data='pictures_in_dialog')],
+            [
+                types.InlineKeyboardButton(text='✅' if sets["pictures_in_dialog"] else ' ', callback_data='pictures_on'),
+                types.InlineKeyboardButton(text=' ' if sets["pictures_in_dialog"] else '❎', callback_data='pictures_off')
+            ],
+            [types.InlineKeyboardButton(text='Количество картинок в /sd:', callback_data='pictures_count')],
+            [
+                types.InlineKeyboardButton(text='1️⃣' if sets["pictures_count"]==1 else '1', callback_data='pictures_count_1'),
+                types.InlineKeyboardButton(text='2️⃣' if sets["pictures_count"]==2 else '2', callback_data='pictures_count_2'),
+                types.InlineKeyboardButton(text='3️⃣' if sets["pictures_count"]==3 else '3', callback_data='pictures_count_3'),
+                types.InlineKeyboardButton(text='4️⃣' if sets["pictures_count"]==4 else '4', callback_data='pictures_count_4'),
+                types.InlineKeyboardButton(text='5️⃣' if sets["pictures_count"]==5 else '5', callback_data='pictures_count_5')
+            ],
+            [types.InlineKeyboardButton(text='Нейросеть для картинок в диалоге:', callback_data='imageai')],
+            [
+                types.InlineKeyboardButton(text='SD 🔥' if sets["imageai"]=='sd' else 'SD', callback_data='imageai_sd'),
+                types.InlineKeyboardButton(text='Flux 🔥' if sets["imageai"]=='flux' else 'Flux', callback_data='imageai_flux')
+            ]
         ]
     )
-    if sets["reset"]:
-        reset_status = "включено"
-    else:
-        reset_status = "выключено"
-    if sets["pictures_in_dialog"]:
-        pictures_status = "включено"
-    else:
-        pictures_status = "выключено"
+    
     msg = (f'Настройки:\n\n'
-           f'Кнопки сброса диалога: {reset_status}\n'
-           f'Картинки в диалоге: {pictures_status}\n'
+           f'Кнопки сброса диалога: {"включено" if sets["reset"] else "выключено"}\n'
+           f'Картинки в диалоге: {"включено" if sets["pictures_in_dialog"] else "выключено"}\n'
            f'Количество картинок: {sets["pictures_count"]}\n'
-           f'Нейросеть для генерации картинок в диалоге: {sets["imageai"]}')
+           f'Нейросеть для генерации: {sets["imageai"].upper()}')
     return msg, markup
 
-
-def edit_sets(id, setting_name, value):
+def edit_sets(user_id: int, setting_name: str, value):
     with get_db() as db:
-        user = db.query(User).filter_by(id=id).first()
-        sets = json.loads(user.settings)
-        sets[setting_name] = value
-        user.settings = json.dumps(sets)
-        db.commit()
-
+        user = db.get(User, user_id)
+        if user:
+            try:
+                sets = json.loads(user.settings) if user.settings else {}
+                sets[setting_name] = value
+                user.settings = json.dumps(sets)
+                db.commit()
+            except Exception:
+                pass
 
 def split_message(text):
     max_len = 4096
@@ -212,7 +257,7 @@ def split_message(text):
     
     messages = []
     current_message = ''
-    words = text.split()
+    words = text.split(' ')
     
     for word in words:
         if len(current_message) + len(word) + 1 <= max_len:
@@ -220,1198 +265,751 @@ def split_message(text):
                 current_message += ' '
             current_message += word
         else:
-            # Если текущее слово превышает max_len, разбиваем его на части
+            if current_message:
+                messages.append(current_message)
             if len(word) > max_len:
                 for i in range(0, len(word), max_len):
                     part = word[i:i + max_len]
-                    if current_message:
-                        messages.append(current_message)
+                    if i + max_len >= len(word):
                         current_message = part
                     else:
                         messages.append(part)
             else:
-                messages.append(current_message)
                 current_message = word
-    
+                
     if current_message:
         messages.append(current_message)
-    
     return messages
 
-
-async def prompt_string(command):
+async def prompt_string(command: str) -> str:
     with get_db() as db:
         prompt = db.query(Prompt).filter_by(command=command).first()
-        author = db.query(User).filter_by(id=prompt.author).first()
+        if not prompt:
+            return "Промпт не найден."
+        author = db.get(User, prompt.author)
+        author_mention = author.get_object().mention_markdown() if (author and author.get_object()) else f"`{prompt.author}`"
+        
         prompt_admins = []
-        for prompt_admin in json.loads(prompt.admins):
-            prompt_admins.append(f'{db.query(User).filter_by(id=prompt_admin).first().get_object().mention_markdown()} (`{prompt_admin}`)')
+        try:
+            admin_ids = json.loads(prompt.admins) if prompt.admins else []
+            for adm_id in admin_ids:
+                adm_user = db.get(User, adm_id)
+                adm_mention = adm_user.get_object().mention_markdown() if (adm_user and adm_user.get_object()) else f"`{adm_id}`"
+                prompt_admins.append(adm_mention)
+        except Exception:
+            pass
+            
     return (f'`/addprompt {prompt.command}|{prompt.name}|{prompt.description}|{prompt.content}`\n\n'
-        f'Создатель: {author.get_object().mention_markdown()} (`{prompt.author}`)\n'
-        f'Админы: {', '.join(prompt_admins) if prompt_admins else 'отсутствуют'}')
+            f'Создатель: {author_mention}\n'
+            f'Админы: {", ".join(prompt_admins) if prompt_admins else "отсутствуют"}')
 
+# --- СТАНДАРТНЫЕ ХЕНДЛЕРЫ КОМАНД ---
 
 @dp.message(Command(commands=['start']))
-async def start(message: Message):
+async def start_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        with get_db() as db:
-            user_id = message.from_user.id
-
-            existing_user = db.query(User).filter(User.id == user_id).first()
-
-            if existing_user:
-                existing_user.set_object(message.from_user)
-            else:
-                new_user = User(id=user_id)
-                new_user.set_object(message.from_user)
-                db.add(new_user)
-
-            db.commit()
-        await message.reply('Привет!\nПомощь - /help')
-
+        return
+    with get_db() as db:
+        user_id = message.from_user.id
+        existing_user = db.get(User, user_id)
+        if existing_user:
+            existing_user.set_object(message.from_user)
+        else:
+            new_user = User(id=user_id)
+            new_user.set_object(message.from_user)
+            # Задаем базовые дефолтные настройки
+            new_user.settings = json.dumps({"reset": True, "pictures_in_dialog": False, "pictures_count": 1, "imageai": "sd"})
+            db.add(new_user)
+        db.commit()
+    await message.reply('Привет!\nПомощь — /help')
 
 @dp.message(Command(commands=['online']))
-async def online(message: Message):
+async def online_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        try:
-            prompt = message.text.replace('/online ', '')
-            prompt = prompt.replace('/online@neuro_gemini_bot ', '')
-            response = await generate.onlinegen(prompt)
-            await message.reply(response)
-        except Exception as e:
-            await message.reply(f'Ошибка: {e}')
+        return
+    try:
+        prompt = message.text.replace('/online ', '').replace('/online@neuro_gemini_bot ', '')
+        if not prompt.strip():
+            await message.reply("Введите запрос после команды.")
+            return
+        response = await generate.onlinegen(prompt)
+        await message.reply(response)
+    except Exception as e:
+        await message.reply(f'Ошибка: {e}')
 
+async def handle_image_generation(message: Message, engine_type: str):
+    if is_banned(message.from_user.id):
+        await message.reply('Вы забанены.')
+        return
+    prompt = message.text.replace(f'/{engine_type} ', '').replace(f'/{engine_type}@neuro_gemini_bot ', '')
+    if not prompt.strip():
+        await message.reply("Напишите промпт для генерации изображения.")
+        return
+    wait_msg = await message.reply('Рисую...')
+    try:
+        with get_db() as db:
+            user = db.get(User, message.from_user.id)
+            sets = json.loads(user.settings) if (user and user.settings) else {"pictures_count": 1}
+        
+        photos = []
+        count = sets.get('pictures_count', 1)
+        for _ in range(count):
+            if engine_type == 'sd':
+                request = await generate.sdgen(prompt)
+            else:
+                request = await generate.fluxgen(prompt)
+            if request:
+                photos.append(types.InputMediaPhoto(media=request))
+                
+        if len(photos) == 1:
+            await message.reply_photo(photos[0].media)
+        elif len(photos) > 1:
+            await message.reply_media_group(photos)
+        else:
+            await message.reply("Не удалось сгенерировать изображения.")
+    except Exception as e:
+        await message.reply(f'Ошибка при генерации изображения: {e}')
+    finally:
+        try:
+            await wait_msg.delete()
+        except Exception:
+            pass
 
 @dp.message(Command(commands=['sd']))
-async def sd(message: Message):
-    if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-    else:
-        prompt = message.text.replace('/sd ', '')
-        prompt = prompt.replace('/sd@neuro_gemini_bot ', '')
-        wait_msg = await message.reply('Рисую...')
-        try:
-            with get_db() as db:
-                user = db.query(User).filter_by(id=message.from_user.id).first()
-                sets = json.loads(user.settings)
-            photos = []
-            for i in range(sets['pictures_count']):
-                request = await generate.sdgen(prompt)
-                photos.append(types.InputMediaPhoto(media=request))
-            if len(photos) == 1:
-                await message.reply_photo(photos[0].media)
-            else:
-                await message.reply_media_group(photos)
-            await wait_msg.delete()
-        except Exception as e:
-            await message.reply(f'Ошибка при генерации изображения: {e}')
-            await wait_msg.delete()
-
+async def sd_cmd(message: Message):
+    await handle_image_generation(message, 'sd')
 
 @dp.message(Command(commands=['flux']))
-async def flux(message: Message):
-    if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-    else:
-        prompt = message.text.replace('/flux ', '')
-        prompt = prompt.replace('/flux@neuro_gemini_bot ', '')
-        wait_msg = await message.reply('Рисую...')
-        try:
-            with get_db() as db:
-                user = db.query(User).filter_by(id=message.from_user.id).first()
-                sets = json.loads(user.settings)
-            photos = []
-            for i in range(sets['pictures_count']):
-                request = await generate.fluxgen(prompt)
-                photos.append(types.InputMediaPhoto(media=request))
-            if len(photos) == 1:
-                await message.reply_photo(photos[0].media)
-            else:
-                await message.reply_media_group(photos)
-            await wait_msg.delete()
-        except Exception as e:
-            await message.reply(f'Ошибка при генерации изображения: {e}')
-            await wait_msg.delete()
-
+async def flux_cmd(message: Message):
+    await handle_image_generation(message, 'flux')
 
 @dp.message(Command(commands=['help']))
-async def help(message: Message):
+async def help_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        help_message = ('Команды:\n/start - начать\n/online - онлайн\n/sd <запрос> - cгенерировать картинку в SD\n'
-                        '/prompts - список промптов\n/reset - очистить контекст\n/help - помощь\n/settings - настройки'
-                        '\n/unicode - посмотреть символы unicode\n/support - отправить сообщение админу\n/stats - '
-                        'статистика\n/profile - профиль')
-        with get_db() as db:
-            admin = db.query(User).filter(User.admin==True, User.id==message.from_user.id).first()
-        if admin or message.from_user.id == creator:
-            help_message += ('\n/addprompt <команда>|<название>|<описание>|<промпт> - добавить/изменить промпт\n'
-                             '/delprompt <команда> - удалить промпт\n/getprompt <команда> - просмотреть промпт\n'
-                             '/myprompts - просмотреть свои промпты\n/addadmin <команда> - добавить админа к промпту\n'
-                             '/deladmin <команда> - удалить админа промпта')
-        if message.from_user.id == creator:
-            help_message += ('\n/admin - назначить админа\n/unadmin - снять админа\n/ban - забанить пользователя\n'
-                             '/unban - разбанить пользователя\n/bans - список забаненых\n/admins - список админов\n'
-                             '/yourprompts - просмотреть чьи-то промпты\n/restart - перезапуск бота\n/stop - остановка '
-                             'бота\n/your_profile - просмотреть чей-то профиль')
-        await message.reply(help_message)
-
+        return
+    help_message = ('Команды:\n/start - начать\n/online - онлайн\n/sd <запрос> - cгенерировать картинку в SD\n'
+                    '/prompts - список промптов\n/reset - очистить контекст\n/help - помощь\n/settings - настройки'
+                    '\n/unicode - посмотреть символы unicode\n/support - отправить сообщение админу\n/stats - '
+                    'статистика\n/profile - профиль')
+    
+    with get_db() as db:
+        admin = db.query(User).filter(User.admin == True, User.id == message.from_user.id).first()
+    
+    if admin or message.from_user.id == creator:
+        help_message += ('\n\nАдмин-команды промптов:\n/addprompt <команда>|<название>|<описание>|<промпт>\n'
+                         '/delprompt <команда> - удалить промпт\n/getprompt <команда> - просмотреть промпт\n'
+                         '/myprompts - просмотреть свои промпты\n/addadmin <команда> - добавить админа к промпту\n'
+                         '/deladmin <команда> - удалить админа промпта')
+    if message.from_user.id == creator:
+        help_message += ('\n\nКоманды Создателя:\n/admin - назначить админа\n/unadmin - снять админа\n/ban - забанить пользователя\n'
+                         '/unban - разбанить пользователя\n/bans - список забаненых\n/admins - список админов\n'
+                         '/yourprompts - просмотреть чьи-то промпты\n/stop - остановка бота\n/your_profile - просмотреть чей-то профиль')
+    await message.reply(help_message)
 
 @dp.message(Command(commands=['settings']))
-async def settings(message: Message):
+async def settings_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        msg = sets_msg(message.from_user.id)
-        await message.reply(msg[0], reply_markup=msg[1])
-
+        return
+    msg, markup = sets_msg(message.from_user.id)
+    await message.reply(msg, reply_markup=markup)
 
 @dp.message(Command(commands=['stats']))
-async def stats(message: Message):
+async def stats_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        with get_db() as db:
-            prompts = db.query(Prompt).all()
-        prompts_count = len(prompts)
-
-        with get_db() as db:
-            bans = db.query(User).filter(User.banned==True).all()
-        bans_count = len(bans)
-
-        with get_db() as db:
-            admins = db.query(User).filter(User.admin==True).all()
-        admins_count = len(admins)
-
-        with get_db() as db:
-            users = db.query(User).all()
-        users_count = len(users)
+        return
+    with get_db() as db:
+        prompts_count = db.query(Prompt).count()
+        bans_count = db.query(User).filter(User.banned == True).count()
+        admins_count = db.query(User).filter(User.admin == True).count()
+        users_count = db.query(User).count()
         
-        await message.reply(
-            f'Статистика:\n\nПромпты: {prompts_count}\nБаны: {bans_count}\nАдмины: {admins_count}\nПользователи: {users_count}')
-
+    await message.reply(f'Статистика системы ⚡ Solid Giggle:\n\n'
+                        f'Промпты: {prompts_count}\n'
+                        f'Баны: {bans_count}\n'
+                        f'Админы: {admins_count}\n'
+                        f'Пользователи в системе: {users_count}')
 
 @dp.message(Command(commands=['profile']))
-async def profile(message: Message):
+async def profile_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        with get_db() as db:
-            user = db.query(User).filter(User.id==message.from_user.id).first()
-
-        if user.admin == True:
-            user_admin_status = 'да'
-        else:
-            user_admin_status = 'нет'
-
-        await message.reply(f'Админ: {user_admin_status}',
-                            parse_mode=ParseMode.HTML)
-
+        return
+    is_adm = is_admin(message.from_user.id) or message.from_user.id == creator
+    await message.reply(f'Ваш профиль:\nID: `{message.from_user.id}`\nАдминистратор: {"Да" if is_adm else "Нет"}', parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command(commands=['your_profile']))
-async def your_profile(message: Message):
-    if message.from_user.id == creator:
-        with get_db() as db:
-            user = db.query(User).filter(User.id==message.reply_to_message.from_user.id).first()
+async def your_profile_cmd(message: Message):
+    if message.from_user.id != creator:
+        return
+    if not message.reply_to_message:
+        await message.reply("Используйте команду ответом на сообщение пользователя.")
+        return
+    target_id = message.reply_to_message.from_user.id
+    with get_db() as db:
+        user = db.get(User, target_id)
+    if user:
+        await message.reply(f'Профиль пользователя `{target_id}`:\nАдмин: {"да" if user.admin else "нет"}\nЗабанен: {"да" if user.banned else "нет"}', parse_mode=ParseMode.MARKDOWN)
+    else:
+        await message.reply("Пользователь не найден в локальной БД.")
 
-        if user.admin == True:
-            user_admin_status = 'да'
-        else:
-            user_admin_status = 'нет'
-
-        if user.banned == True:
-            user_ban_status = 'да'
-        else:
-            user_ban_status = 'нет'
-
-        await message.reply(f'Админ: {user_admin_status}\nЗабанен: {user_ban_status}',
-                            parse_mode=ParseMode.HTML)
-
-
-@dp.message(Command(commands=['reset']))  # TODO: work with `name` of prompt
-async def reset(message: Message):
+@dp.message(Command(commands=['reset']))
+async def reset_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        with open('contexts.json') as f:
-            contexts = json.load(f)
-        contexts_to_del = []
-        for context in contexts:
-            if context.startswith(str(message.from_user.id)):
-                contexts_to_del.append(context)
-        for context in contexts_to_del:
-            del contexts[context]
-        with open('contexts.json', 'w') as f:
-            json.dump(contexts, f, ensure_ascii=False, indent=4)
-        await message.reply('Весь контекст удалён')
-
+        return
+    clear_user_contexts(message.from_user.id)
+    await message.reply('Весь ваш диалоговый контекст успешно очищен.')
 
 @dp.message(Command(commands=['unicode']))
-async def unicode(message: Message):
+async def unicode_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        await message.reply('Эта функция предоставляет символы Unicode (их могут использовать админы для создания ASCII'
-                            '-картинок или кастомизированных меню в своих промптах):\n'
-                            '֎ ֍ \n█ ▓ ▒ ░ ▄ ▀ ▌ ▐ \n■ □ ▬ ▲ ► ▼ ◄ \n◊ ○ ◌ ● ◘ ◙ ◦ ☻ \n☼ ♀ ♂ ♪ ♫ ♯ \n'
-                            '┌─┬┐  ╒═╤╕\n│ ││  │ ││\n├─┼┤  ╞═╪╡\n└─┴┘  ╘═╧╛\n╓─╥╖  ╔═╦╗\n║ ║║  ║ ║║\n╟─╫╢  ╠═╬╣\n'
-                            '╙─╨╜  ╚═╩╝\nΩ ₪ ← ↑ → ↓ ∆ ∏ ∑ \n√ ∞ ∟ ∩ ≈ ≠ ≡ ≤ ≥ ⌂ ⌐ \n➀➁➂➃➄➅➆➇➈➉\n⓿❶❷❸❹❺❻❼❽❾❿\n'
-                            '➊➋➌➍➎➏➐➑➒➓\n⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴\n⓵⓶⓷⓸⓹⓺⓻⓼⓽⓾\n⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽\n⑾⑿⒀⒁⒂⒃⒄⒅⒆⒇\n'
-                            '⒈⒉⒊⒋⒌⒍⒎⒏⒐⒑\n⒒⒓⒔⒕⒖⒗⒘⒙⒚⒛\n①②③④⑤⑥⑦⑧⑨⑩\n⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳\n♳♴♵♶♷♸♹♺\n♼♽✓\n♩♪♫♬\n'
-                            '▁▂▃▄▅▆▇█ \n▊\n▋\n▌\n▍\n▎\n▏\n\n▔\n')
-
+        return
+    await message.reply('Символы Unicode для промптов и ASCII структур:\n'
+                        '֎ ֍ \n█ ▓ ▒ ░ ▄ ▀ ▌ ▐ \n■ □ ▬ ▲ ► ▼ ◄ \n◊ ○ ◌ ● ◘ ◙ ◦ ☻ \n☼ ♀ ♂ ♪ ♫ ♯ \n'
+                        '┌─┬┐  ╒═╤╕\n│ ││  │ ││\n├─┼┤  ╞═╪╡\n└─┴┘  ╘═╧╛\n╓─╥╖  ╔═╦╗\n║ ║║  ║ ║║\n╟─╫╢  ╠═╬╣\n'
+                        '╙─╨╜  ╚═╩╝\nΩ ₪ ← ↑ → ↓ ∆ ∏ ∑ \n√ ∞ ∟ ∩ ≈ ≠ ≡ ≤ ≥ ⌂ ⌐ \n➀➁➂➃➄➅➆➇➈➉\n⓿❶❷❸❹❺❻❼❽❾❿\n'
+                        '➊➋➌➍➎➏➐➑➒➓\n⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴\n⓵⓶⓷⓸⓹⓺⓻⓼⓽⓾\n⑴⑵⑶⑷⑸⑹⑺⑻⑼⑽\n⑾⑿⒀⒁⒂⒃⒄⒅⒆⒇\n'
+                        '⒈⒉⒊⒋⒌⒍⒎⒏⒐⒑\n⒒⒓⒔⒕⒖⒗⒘⒙⒚⒛\n①②③④⑤⑥⑦⑧⑨⑩\n⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳\n♳♴♵♶♷♸♹♺\n♼♽✓\n♩♪♫♬\n')
 
 @dp.message(Command(commands=['addkey']))
-async def addkey(message: Message):
-    data = message.text.replace('/addkey ', '')
-    data = data.replace('/addkey@neuro_gemini_bot ', '')
+async def addkey_cmd(message: Message):
+    data = message.text.replace('/addkey ', '').replace('/addkey@neuro_gemini_bot ', '').strip()
+    if not data:
+        await message.reply("Формат: `/addkey ТВОЙ_API_КЛЮЧ`", parse_mode=ParseMode.MARKDOWN)
+        return
     try:
         await gemini.gemini_gen('hi', data)
         with get_db() as db:
             key = APIKey(key=data, creator=message.from_user.id)
             db.add(key)
             db.commit()
-        await message.reply('Ключ добавлен.')
+        await message.reply('API-ключ успешно прошёл валидацию и добавлен в пул системы.')
     except Exception as e:
-        await message.reply(f'Ключ неактивен. Попробуйте снова чуть позже. \nОшибка: {e}')
-
+        await message.reply(f'Ключ не прошел проверку. Ошибка: {e}')
 
 @dp.message(Command(commands=['test']))
-async def test(message: Message):
+async def test_cmd(message: Message):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
         return
     with get_db() as db:
         keys = db.query(APIKey).all()
+    if not keys:
+        await message.reply("В системе нет активных API ключей.")
+        return
+        
+    last_err = "Неизвестная ошибка"
     for key in keys:
         try:
             response = await gemini.gemini_gen('Привет!', key.key)
-            await message.reply(response[0])
-            return
+            if response:
+                await message.reply(f'Пул стабилен. Ключ проверен: {response[0][:100]}...')
+                return
         except Exception as e:
+            last_err = str(e)
             continue
-    try:
-        await message.reply(f'Ключ неактивен. Попробуйте снова чуть позже. \nОшибка: {e}')
-    except Exception as e:
-        await message.reply('Кончился лимит!')
-
+    await message.reply(f'Все ключи из пула исчерпали лимиты. Последний лог ошибки: {last_err}')
 
 @dp.message(Command(commands=['support']))
-async def send(message: Message, state: FSMContext):
+async def support_cmd(message: Message, state: FSMContext):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        await state.set_state(MessageToAdmin.text_message)
-        await message.reply('Связь с админом.\nНапишите сообщение, для отмены напишите: "отмена":')
-
+        return
+    await state.set_state(MessageToAdmin.text_message)
+    await message.reply('Режим обратной связи. Напишите текст обращения для команды админов (или отправьте "отмена"):')
 
 @dp.message(MessageToAdmin.text_message)
-async def message_to_admin(message: Message, state: FSMContext):
+async def message_to_admin_handler(message: Message, state: FSMContext):
     if is_banned(message.from_user.id):
         await message.reply('Вы забанены.')
-    else:
-        await state.update_data(text_message=message.text)
-        if message.text.lower() == 'отмена':
-            await state.clear()
-            await message.reply('Отмена.')
-        else:
-            await state.clear()
-            await message.reply('Сообщение отправлено.\nОбсуждение бота в группе @neuro_opensource')
-            await bot.send_message(support_chat,
-                                   f'Сообщение от пользователя @{message.from_user.username}, {message.from_user.id}, {message.from_user.mention_html()}:',
-                                   parse_mode=ParseMode.HTML)
-            await message.forward(support_chat)
+        await state.clear()
+        return
+    
+    if message.text and message.text.lower() == 'отмена':
+        await state.clear()
+        await message.reply('Отменено.')
+        return
+        
+    await state.clear()
+    await message.reply('Сообщение отправлено администрации.')
+    try:
+        await bot.send_message(
+            support_chat,
+            f'📩 Обращение от @{message.from_user.username or "username_empty"} (ID: `{message.from_user.id}`):',
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await message.forward(support_chat)
+    except Exception:
+        pass
 
+# --- УПРАВЛЕНИЕ ДИНАМИЧЕСКИМИ ПРОМПТАМИ ---
 
 @dp.message(Command(commands=['addprompt']))
-async def addprompt(message: Message):
+async def addprompt_cmd(message: Message):
+    command, name, description, prompt_content = find_prompt(message.text)
+    if not command:
+        await message.reply("Ошибка парсинга. Используйте формат: `/addprompt команда|название|описание|контент`", parse_mode=ParseMode.MARKDOWN)
+        return
+        
     with get_db() as db:
-        user = db.query(User).filter(User.id==message.from_user.id).first()
-        data = find_prompt(message.text)
-        prompt = db.query(Prompt).filter_by(command=data[0]).first()
-        if prompt:
-            prompt_admins = json.loads(prompt.admins)
-            prompt_creator = db.query(User).filter_by(id=prompt.author).first()
-
-    if user.admin or message.from_user.id == creator:
-        if message.from_user.id == creator:
-            status = add_or_update_prompt(data[0], data[1], data[2], data[3], creator)
-            with get_db() as db:
-                prompt = db.query(Prompt).filter_by(command=data[0]).first()
-                prompt_admins = json.loads(prompt.admins)
-                prompt_creator = db.query(User).filter_by(id=prompt.author).first()
+        user = db.get(User, message.from_user.id)
+        prompt_obj = db.query(Prompt).filter_by(command=command).first()
         
-        elif user.admin and prompt:
-            if prompt.author == message.from_user.id or message.from_user.id in prompt_admins:
-                status = add_or_update_prompt(data[0], data[1], data[2], data[3], message.from_user.id)
-                with get_db() as db:
-                    prompt = db.query(Prompt).filter_by(command=data[0]).first()
-                    prompt_admins = json.loads(prompt.admins)
-                    prompt_creator = db.query(User).filter_by(id=prompt.author).first()
-            else:
-                await message.reply('Куда полез? Тебе сюда нельзя.')
-                return
+        is_allowed = (
+            message.from_user.id == creator or 
+            (user and user.admin and (not prompt_obj or prompt_obj.author == message.from_user.id or message.from_user.id in json.loads(prompt_obj.admins or "[]")))
+        )
 
-        elif user.admin and not prompt:
-            status = add_or_update_prompt(data[0], data[1], data[2], data[3], message.from_user.id)
-            with get_db() as db:
-                prompt = db.query(Prompt).filter_by(command=data[0]).first()
-                prompt_admins = json.loads(prompt.admins)
-                prompt_creator = db.query(User).filter_by(id=prompt.author).first()
-        
-        else:
-            await message.reply('Куда полез? Тебе сюда нельзя.')
-            return
+    if not is_allowed:
+        await message.reply('Недостаточно прав для создания/редактирования этого промпта.')
+        return
 
-        if status == True:
-            await message.reply(f'Промпт /{data[0]} изменён.')
-        else:
-            await message.reply(f'Промпт /{data[0]} добавлен.')
+    # Вызываем системную утилиту обновления
+    status = add_or_update_prompt(command, name, description, prompt_content, message.from_user.id)
     
-    else:
-        if prompt:
-            if prompt.author == message.from_user.id or message.from_user.id in prompt_admins:
-                status = add_or_update_prompt(data[0], data[1], data[2], data[3], prompt_creator)
-                with get_db() as db:
-                    prompt = db.query(Prompt).filter_by(command=data[0]).first()
-                    prompt_admins = json.loads(prompt.admins)
-                    prompt_creator = db.query(User).filter_by(id=prompt.author).first()
-                await message.reply(f'Промпт /{data[0]} изменён.')
-            else:
-                await message.reply('Куда полез? Тебе сюда нельзя.')
-                return
-        else:
-            await message.reply('Куда полез? Тебе сюда нельзя.')
-            return
+    with get_db() as db:
+        updated_prompt = db.query(Prompt).filter_by(command=command).first()
+        p_author = updated_prompt.author if updated_prompt else message.from_user.id
+        p_admins = updated_prompt.admins if updated_prompt else "[]"
 
-    await bot.send_message(prompts_channel, f'/addprompt {data[0]}|{data[1]}|{data[2]}|{data[3]}\n\n'
-                                            f'Создатель: {prompt_creator.get_object().mention_markdown()} (`{prompt_creator.id}`)\n'
-                                            f'Админы: {prompt_admins}', parse_mode=ParseMode.MARKDOWN)
-
+    await message.reply(f'Промпт `/{command}` успешно {"изменён" if status else "добавлен"}.', parse_mode=ParseMode.MARKDOWN)
+    
+    try:
+        await bot.send_message(
+            prompts_channel, 
+            f'/addprompt {command}|{name}|{description}|{prompt_content}\n\nСоздатель ID: `{p_author}`\nАдмины: `{p_admins}`', 
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception:
+        pass
 
 @dp.message(Command(commands=['delprompt']))
-async def delprompt(message: Message):
-    command = message.text.replace('/delprompt ', '')
-    command = command.replace('/delprompt@neuro_gemini_bot ', '')
+async def delprompt_cmd(message: Message):
+    cmd = message.text.replace('/delprompt ', '').replace('/delprompt@neuro_gemini_bot ', '').strip()
     with get_db() as db:
-        prompt = db.query(Prompt).filter_by(command=command).first()
-    try:
-        prompt_creator = prompt.author
-    except AttributeError:
-        await message.reply('Такого промпта нет')
-        return
-    if prompt_creator == message.from_user.id or message.from_user.id == creator:
-        btn1 = types.InlineKeyboardButton(text='Нет', callback_data=f'false_delprompt_{message.from_user.id}')
-        btn2 = types.InlineKeyboardButton(text='Да', callback_data=f'true__delprompt__{prompt.command}__{message.from_user.id}')
-        markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        await message.reply(f'Ты уверен?', reply_markup=markup)
-    else:
-        await message.reply('Куда полез? Тебе сюда нельзя')
-
+        prompt = db.query(Prompt).filter_by(command=cmd).first()
+        if not prompt:
+            await message.reply('Промпт не найден.')
+            return
+        if prompt.author == message.from_user.id or message.from_user.id == creator:
+            btn1 = types.InlineKeyboardButton(text='Нет', callback_data=f'false_delprompt_{message.from_user.id}')
+            btn2 = types.InlineKeyboardButton(text='Да', callback_data=f'true__delprompt__{prompt.command}__{message.from_user.id}')
+            markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
+            await message.reply(f'Удалить промпт `/{cmd}`? Вы уверены?', reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await message.reply('У вас нет прав на удаление этого промпта.')
 
 @dp.message(Command(commands=['getprompt']))
-async def getprompt(message: Message):
-    key = message.text.replace('/getprompt ', '')
-    key = key.replace('/getprompt@neuro_gemini_bot ', '')
+async def getprompt_cmd(message: Message):
+    key = message.text.replace('/getprompt ', '').replace('/getprompt@neuro_gemini_bot ', '').strip()
     with get_db() as db:
         prompt = db.query(Prompt).filter_by(command=key).first()
     if not prompt:
-        await message.reply('Такого промпта нет')
+        await message.reply('Промпт не найден.')
         return
-    if prompt.author == message.from_user.id or message.from_user.id == creator or message.from_user.id in json.loads(prompt.admins):
+        
+    p_admins = json.loads(prompt.admins) if prompt.admins else []
+    if prompt.author == message.from_user.id or message.from_user.id == creator or message.from_user.id in p_admins:
         string = await prompt_string(key)
         btn1 = types.InlineKeyboardButton(text='❌ Скрыть', callback_data=f'del_{message.from_user.id}')
         markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1]])
         await message.reply(string, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
     else:
-        await message.reply('Куда полез? Тебе сюда нельзя')
-
-
-@dp.message(Command(commands=['gdelprompt']))
-async def gdelprompt(message: Message):
-    prompt_command = message.text.replace('/gdelprompt ', '')
-    prompt_command = prompt_command.replace('/gdelprompt@neuro_gemini_bot ', '')
-    with get_db() as db:
-        prompt = db.query(Prompt).filter_by(command=prompt_command).first()
-    if not prompt:
-        await message.reply('Такого промпта нет')
-        return
-    if prompt.author == message.from_user.id or message.from_user.id == creator:
-        with get_db() as db:
-            user = db.query(User).filter(User.id==message.from_user.id).first()
-        string = await prompt_string(prompt_command)
-        await message.reply(string, parse_mode=ParseMode.MARKDOWN)
-        btn1 = types.InlineKeyboardButton(text='Нет', callback_data=f'false_delprompt_{message.from_user.id}')
-        btn2 = types.InlineKeyboardButton(text='Да',
-                                          callback_data=f'true__delprompt__{prompt_command}__{message.from_user.id}')
-        markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        await message.reply(f'Ты уверен?', reply_markup=markup)
-    else:
-        await message.reply('Куда полез? Тебе сюда нельзя.')
-
-
-@dp.message(Command(commands=['addadmin']))
-async def addadmin(message: Message):
-    if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-        return
-    data = message.text.replace('/addadmin ', '')
-    data = data.replace('/addadmin@neuro_gemini_bot ', '')
-
-    with get_db() as db:
-        user = db.query(User).filter(User.id==message.from_user.id).first()
-        reply_user = db.query(User).filter(User.id==message.reply_to_message.from_user.id).first()
-        prompt = db.query(Prompt).filter_by(command=data).first()
-
-        if message.from_user.id == creator or message.from_user.id == prompt.author:
-            if reply_user.admin:
-                admins = json.loads(prompt.admins)
-                admins.append(message.reply_to_message.from_user.id)
-                prompt.admins = json.dumps(admins)
-                db.commit()
-            else:
-                await message.reply('Целевой пользователь не админ.')
-                return
-        else:
-            await message.reply('Ты не админ.')
-            return
-    await message.reply(f'Админ к /{data} добавлен.')
-
-
-@dp.message(Command(commands=['deladmin']))
-async def deladmin(message: Message):
-    if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-        return
-    data = message.text.replace('/deladmin ', '')
-    data = data.replace('/deladmin@neuro_gemini_bot ', '')
-
-    with get_db() as db:
-        user = db.query(User).filter(User.id==message.from_user.id).first()
-        reply_user = db.query(User).filter(User.id==message.reply_to_message.from_user.id).first()
-        prompt = db.query(Prompt).filter_by(command=data).first()
-
-        if message.from_user.id == creator or message.from_user.id == prompt.author:
-            if reply_user.admin:
-                admins = json.loads(prompt.admins)
-                admins.remove(message.reply_to_message.from_user.id)
-                prompt.admins = json.dumps(admins)
-                #prompts[data]['admins'].remove(message.reply_to_message.from_user.id)
-                db.commit()
-            else:
-                await message.reply('Целевой пользователь не админ.')
-                return
-    await message.reply(f'Админ к /{data} удалён.')
-
+        await message.reply('Доступ к исходному коду промпта ограничен.')
 
 @dp.message(Command(commands=['myprompts']))
-async def myprompts(message: Message):
+async def myprompts_cmd(message: Message):
     with get_db() as db:
         user_prompts = db.query(Prompt).filter_by(author=message.from_user.id).all()
-    message_prompts = ''
-    for prompt in user_prompts:
-        message_prompts += '/' + prompt.command + ' "' + prompt.name + '" ' + prompt.description + '\n'
-    try:
-        await message.reply(message_prompts)
-    except aiogram.exceptions.TelegramBadRequest:
-        await message.reply('У вас нет ни одного созданного промпта.')
-
-
-@dp.message(Command(commands=['yourprompts']))
-async def yourprompts(message: Message):
-    if message.from_user.id == creator:
-        with get_db() as db:
-            user_prompts = db.query(Prompt).filter_by(author=message.from_user.id).all()
-        message_prompts = ''
-        for prompt in prompts:
-            message_prompts += '/' + prompt.command + ' "' + prompt.name + '" ' + prompt.description + '\n'
-        try:
-            await message.reply(message_prompts)
-        except aiogram.exceptions.TelegramBadRequest:
-            await message.reply(f'У {message.reply_to_message.from_user.first_name} нет ни одного созданного промпта')
-
+    if not user_prompts:
+        await message.reply('У вас нет созданных промптов.')
+        return
+    msg = "Ваши промпты:\n" + "".join([f'/{p.command} "{p.name}" - {p.description}\n' for p in user_prompts])
+    await message.reply(msg)
 
 @dp.message(Command(commands=['prompts']))
-async def prompts(message: Message):
+async def prompts_list_cmd(message: Message):
     if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-    else:
-        with get_db() as db:
-            prompts = db.query(Prompt).all()
-        list_prompts = []
-        for prompt in prompts:
-            message_prompt = '/' + prompt.command + ' "' + prompt.name + '" ' + prompt.description + '\n'
-            list_prompts.append(message_prompt)
-        btn1 = types.InlineKeyboardButton(text='❌ Скрыть', callback_data='del')
-        markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1]])
-        i = len(list_prompts)
-        y = [0, 10]
-        while True:
-            message_prompts = ''
-            for msg in list_prompts[y[0]:y[1]]:
-                message_prompts += msg
-            await message.reply(message_prompts, reply_markup=markup)
-            if y[1] >= i:
-                break
-            y[0] += 10
-            y[1] += 10
+        return
+    with get_db() as db:
+        all_prompts = db.query(Prompt).all()
+    if not all_prompts:
+        await message.reply('Список промптов пуст.')
+        return
+    
+    # Постраничный вывод во избежание Flood-блокировок Telegram (по 15 штук)
+    chunks = [all_prompts[i:i + 15] for i in range(0, len(all_prompts), 15)]
+    btn = types.InlineKeyboardButton(text='❌ Закрыть список', callback_data=f'del_{message.from_user.id}')
+    markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn]])
+    
+    for chunk in chunks:
+        out = "Список доступных промптов системы:\n\n"
+        for p in chunk:
+            out += f'/{p.command} — *{p.name}*\n_{p.description}_\n\n'
+        await message.reply(out, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+        await asyncio.sleep(0.3)
 
+# --- МОДЕРАЦИЯ И БАНЫ ---
 
 @dp.message(Command(commands=['ban']))
-async def ban(message: Message):
-    if message.from_user.id == creator:
-        data = message.text.split()
-
-        if len(data) == 2:
-            user_id = int(data[1])
-        else:
-            user_id = message.reply_to_message.from_user.id
-
-        with get_db() as db:
-            user = db.get(User, user_id)
-            if not user:
-                new_user = User(id=user_id, object='{}')
-                db.add(new_user)
-            user = db.get(User, user_id)
-            user.banned = True
-            db.commit()
-
-        await message.reply('Пользователь забанен')
-    else:
-        await message.reply('Вы не админ')
-
+async def ban_cmd(message: Message):
+    if message.from_user.id != creator:
+        return
+    args = message.text.split()
+    user_id = int(args[1]) if len(args) == 2 else (message.reply_to_message.from_user.id if message.reply_to_message else None)
+    
+    if not user_id:
+        await message.reply("Укажите ID или ответьте на сообщение.")
+        return
+        
+    with get_db() as db:
+        user = db.get(User, user_id)
+        if not user:
+            user = User(id=user_id, object='{}')
+            db.add(user)
+        user.banned = True
+        db.commit()
+    await message.reply(f'Пользователь `{user_id}` заблокирован.', parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command(commands=['unban']))
-async def unban(message: Message):
-    if message.from_user.id == creator:
-        data = message.text.split()
-
-        if len(data) == 2:
-            user_id = int(data[1])
-        else:
-            user_id = message.reply_to_message.from_user.id
-
-        with get_db() as db:
-            user = db.get(User, user_id)
+async def unban_cmd(message: Message):
+    if message.from_user.id != creator:
+        return
+    args = message.text.split()
+    user_id = int(args[1]) if len(args) == 2 else (message.reply_to_message.from_user.id if message.reply_to_message else None)
+    
+    if not user_id:
+        await message.reply("Укажите ID.")
+        return
+        
+    with get_db() as db:
+        user = db.get(User, user_id)
+        if user:
             user.banned = False
             db.commit()
-
-        await message.reply('Пользователь разбанен')
-    else:
-        await message.reply('Вы не админ')
-
-
-@dp.message(Command(commands=['deluser']))
-async def deluser(message: Message):
-    if message.from_user.id == creator:
-        data = message.text.split()
-
-        if data[1]:
-            user_id = int(data[1])
-        else:
-            user_id = message.reply_to_message.from_user.id
-
-        with get_db() as db:
-            user = db.get(User, user_id)
-            db.delete(user)
-            db.commit()
-
-        await message.reply('Пользователь удалён')
-    else:
-        await message.reply('Вы не админ')
-
+    await message.reply(f'Пользователь `{user_id}` разблокирован.', parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command(commands=['admin']))
-async def admin(message: Message):
-    if message.from_user.id == creator:
-        user_id = message.reply_to_message.from_user.id
-
-        with get_db() as db:
-            user = db.get(User, user_id)
+async def make_admin_cmd(message: Message):
+    if message.from_user.id != creator or not message.reply_to_message:
+        return
+    target = message.reply_to_message.from_user.id
+    with get_db() as db:
+        user = db.get(User, target)
+        if user:
             user.admin = True
             db.commit()
-
-        await message.reply(f'{message.reply_to_message.from_user.first_name} теперь админ')
-    else:
-        await message.reply('Вы не админ')
-
+    await message.reply(f'{message.reply_to_message.from_user.first_name} назначен администратором.')
 
 @dp.message(Command(commands=['unadmin']))
-async def unadmin(message: Message):
-    if message.from_user.id == creator:
-        user_id = message.reply_to_message.from_user.id
-
-        with get_db() as db:
-            user = db.get(User, user_id)
+async def remove_admin_cmd(message: Message):
+    if message.from_user.id != creator or not message.reply_to_message:
+        return
+    target = message.reply_to_message.from_user.id
+    with get_db() as db:
+        user = db.get(User, target)
+        if user:
             user.admin = False
             db.commit()
-
-        await message.reply(f'{message.reply_to_message.from_user.first_name} больше не админ')
-    else:
-        await message.reply('Вы не админ')
-
+    await message.reply(f'{message.reply_to_message.from_user.first_name} снят с поста администратора.')
 
 @dp.message(Command(commands=['admins']))
-async def admins(message: Message):
-    if message.from_user.id == creator:
-        with get_db() as db:
-            admins = db.query(User).filter(User.admin==True).all()
-        admins_message = 'Админы:\n'
-        for admin in admins:
-            admins_message += f'{admin.get_object().mention_markdown()} (`{admin.id}`)\n'
-        btn1 = types.InlineKeyboardButton(text='❌ Скрыть', callback_data=f'del_{message.from_user.id}')
-        markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1]])
-        if admins_message == 'Админы:\n':
-            await message.reply('Админов нет')
-            return
-        await message.reply(admins_message, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-    else:
-        await message.reply('Вы не админ')
-
+async def list_admins_cmd(message: Message):
+    if message.from_user.id != creator:
+        return
+    with get_db() as db:
+        admins = db.query(User).filter(User.admin == True).all()
+    out = "Список админов:\n" + "\n".join([f'• ID: `{a.id}`' for a in admins])
+    await message.reply(out, parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command(commands=['bans']))
-async def bans(message: Message):
-    if message.from_user.id == creator:
-        with get_db() as db:
-            bans = db.query(User).filter(User.banned==True).all()
-        bans_message = 'Забаненные пользователи:\n'
-        for ban in bans:
-            bans_message += f'{ban.get_object().mention_markdown() if ban.object != '{}' else 'Имя отсутствует'} (`{ban.id}`)\n'
-        btn1 = types.InlineKeyboardButton(text='❌ Скрыть', callback_data=f'del_{message.from_user.id}')
-        markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1]])
-        if bans_message == 'Забаненные пользователи:\n':
-            await message.reply('Забаненных пользователей нет')
-            return
-        await message.reply(bans_message, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-    else:
-        await message.reply('Вы не админ')
-
+async def list_bans_cmd(message: Message):
+    if message.from_user.id != creator:
+        return
+    with get_db() as db:
+        banned_users = db.query(User).filter(User.banned == True).all()
+    out = "Список забаненных:\n" + "\n".join([f'• ID: `{b.id}`' for b in banned_users])
+    await message.reply(out, parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command(commands=['stop']))
-async def stop(message: Message):
+async def stop_bot(message: Message):
     if message.from_user.id == creator:
-        await message.reply('Бот остановлен')
+        await message.reply('Остановка пула инстанса бота...')
         await dp.stop_polling()
 
+# --- ОСНОВНОЕ ЯДРО ДВИЖКА (ГЕНЕРАЦИЯ ОТВЕТОВ) ---
 
-@dp.message(Command(commands=['restart']))
-async def restart(message: Message):
-    if message.from_user.id == creator:
-        await message.reply('Временно недоступно.')
+async def core_ai_processor(message: Message, command: str, text_prompt: str, photo_buffer: io.BytesIO = None):
+    # Очистка и обработка ссылок Telegraph в асинхронном режиме
+    clean_prompt = await read_telegraph_async(text_prompt or " ")
+    
+    with get_db() as db:
+        prompt_obj = db.query(Prompt).filter_by(command=command).first()
+        if not prompt_obj:
+            return  # Такой динамической команды нет в системе
+        
+        system_prompt = prompt_obj.content
+        keys = db.query(APIKey).all()
+        user = db.get(User, message.from_user.id)
+        sets = json.loads(user.settings) if (user and user.settings) else {"reset": True, "pictures_in_dialog": False, "imageai": "sd"}
 
+    if not keys:
+        await message.reply("Ошибка конфигурации: в пуле отсутствует рабочий ключ Gemini API.")
+        return
 
-@dp.message(F.caption.startswith('/'), F.photo)
-async def command_response(message: Message):
-    if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-    elif message.caption[0] == '/':
-        photo = message.photo[-1]
-        file_id = photo.file_id
-        file = await bot.get_file(file_id)
-        file_path = file.file_path
-        buffer = io.BytesIO()
-        buffer.seek(0)
-        await bot.download_file(file_path, buffer)
+    wait_msg = await message.reply('Движок думает...')
+    context = get_user_context(message.from_user.id, command)
+    
+    request_result = None
+    last_exception = None
 
-        command = message.caption.split()[0].replace('/', '')
-        command = command.split()[0].replace('@neuro_gemini_bot', '')
-        prompt = message.caption.replace(message.caption.split()[0], '')
-        prompt = prompt.replace('@neuro_gemini_bot ', '')
-        prompt = read_telegraph(prompt)
-        if prompt == '':
-            prompt = ' '
-
-        with open('contexts.json') as f:
-            contexts = json.load(f)
+    for key_obj in keys:
         try:
-            with get_db() as db:
-                prompt_obj = db.query(Prompt).filter_by(command=command).first()
-            system_prompt = read_telegraph(prompt_obj.content)
-        except AttributeError:
-            return
-        with get_db() as db:
-            keys = db.query(APIKey).all()
-        wait_msg = await message.reply('Думаю...')
-        if f'{message.from_user.id}-{command}' not in contexts:
-            contexts[f'{message.from_user.id}-{command}'] = []
-        context = contexts[f'{message.from_user.id}-{command}']
-        for key in keys:
-            try:
-                request = await gemini.gemini_gen(prompt, key.key, context, system_prompt, image_bytes_io=buffer)
+            # Вызов генерации нейросети
+            request_result = await gemini.gemini_gen(
+                clean_prompt, key_obj.key, context, system_prompt, 
+                image_bytes_io=photo_buffer
+            )
+            if request_result:
                 break
-            except Exception as e:
-                continue
+        except Exception as e:
+            last_exception = e
+            continue
+
+    if not request_result:
+        await message.reply(f'Ошибка генерации ядра AI. Последний лог: {last_exception or "Исчерпаны лимиты токенов"}')
         try:
-            await message.reply(f'Ошибка при генерации: {e}\n Вы можете сообщить о ней по команде /send')
             await wait_msg.delete()
-            return
-        except:
+        except Exception:
             pass
-        response = find_draw_strings(request[0])
-        btn1 = types.InlineKeyboardButton(text='Сброс всего', callback_data='delall_context')
-        btn2 = types.InlineKeyboardButton(text='Сброс', callback_data=f'delcontext__{command}')
-        with get_db() as db:
-            user = db.query(User).filter_by(id=message.from_user.id).first()
-            sets = json.loads(user.settings)
-        if sets['reset']:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        else:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-        i = len(response[1])
-        x = [0, 4096]
-        ids1 = []
-        while True:
-            msg = await message.reply(response[1][x[0]:x[1]], reply_markup=markup)
-            ids1.append(msg.message_id)
-            if x[1] >= i:
-                break
-            x[0] += 4096
-            x[1] += 4096
+        return
+
+    raw_response, updated_context = request_result[0], request_result[1]
+    
+    # Парсим кастомные теги картинок {{{prompt}}}
+    draw_prompts, text_to_send = find_draw_strings(raw_response)
+    
+    # Кнопки быстрого сброса
+    markup_list = []
+    if sets.get('reset', True):
+        markup_list.append([
+            types.InlineKeyboardButton(text='Сброс всего 🧹', callback_data='delall_context'),
+            types.InlineKeyboardButton(text='Сброс ветки ↩️', callback_data=f'delcontext__{command}')
+        ])
+    markup = types.InlineKeyboardMarkup(inline_keyboard=markup_list)
+    
+    # Дробим длинные ответы во избежание падения по лимиту символов (4096)
+    split_chunks = split_message(text_to_send)
+    
+    for chunk in split_chunks:
+        if chunk.strip():
+            sent_msg = await message.reply(chunk, reply_markup=markup)
+            # Регистрируем ID ответа, чтобы обрабатывать реплаи к конкретной ветке команд
+            register_message_reply(sent_msg.message_id, message.from_user.id, command)
+
+    try:
         await wait_msg.delete()
-        context = request[1]
-        with open('prompts_message_ids.json') as f:
-            ids = json.load(f)
-        if f'{command}' not in ids:
-            ids[f'{command}'] = []
-        for id in ids1:
-            ids[f'{command}'].append(id)
-        contexts[f'{str(message.from_user.id)}-{command}'] = context
-        with open('prompts_message_ids.json', 'w') as f:
-            json.dump(ids, f, indent=4)
-        with open('contexts.json', 'w') as f:
-            json.dump(contexts, f, ensure_ascii=False, indent=4)
+    except Exception:
+        pass
+
+    # Сохраняем обновленный контекст обратно в БД
+    save_user_context(message.from_user.id, command, updated_context)
+
+    # Отрисовка изображений, если включена опция
+    if sets.get('pictures_in_dialog', False) and draw_prompts:
+        img_engine = sets.get('imageai', 'sd')
         photos = []
-        if sets['pictures_in_dialog']:
-            for prompt in response[0]:
-                request = await generate.sdgen(prompt) if sets["imageai"] == 'sd' else await generate.fluxgen(prompt) if sets["imageai"] == 'flux' else None
-                photos.append(types.InputMediaPhoto(media=request, caption=prompt))
-            if len(photos) == 0:
-                pass
-            elif len(photos) == 1:
-                await message.reply_photo(photos[0].media)
-            else:
-                await message.reply_media_group(photos)
-        buffer.close()
-
-
-@dp.message(F.reply_to_message.from_user.id == 7487465375, F.photo)
-async def reply_response(message: Message):
-    if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-    else:
-        photo = message.photo[-1]
-        file_id = photo.file_id
-        file = await bot.get_file(file_id)
-        file_path = file.file_path
-        buffer = io.BytesIO()
-        buffer.seek(0)
-        await bot.download_file(file_path, buffer)
-
-        with open('prompts_message_ids.json') as f:
-            ids = json.load(f)
-        for prompt_ids in ids:
-            if message.reply_to_message.message_id in ids[prompt_ids]:
-                command = prompt_ids
-                break
-        else:
-            return
-        prompt = message.caption if message.caption else ' '
-        prompt = read_telegraph(prompt)
-
-        with open('contexts.json') as f:
-            contexts = json.load(f)
-        if f'{message.from_user.id}-{command}' not in contexts:
-            contexts[f'{message.from_user.id}-{command}'] = []
-        context = contexts[f'{message.from_user.id}-{command}']
-        with get_db() as db:
-            prompt_obj = db.query(Prompt).filter_by(command=command).first()
-        system_prompt = read_telegraph(prompt_obj.content)
-        with get_db() as db:
-            keys = db.query(APIKey).all()
-        wait_msg = await message.reply('Думаю...')
-        for key in keys:
+        for d_prompt in draw_prompts:
             try:
-                request = await gemini.gemini_gen(prompt, key.key, context, system_prompt, image_bytes_io=buffer)
-                break
-            except Exception as e:
-                continue
-        try:
-            await message.reply(f'Ошибка при генерации: {e}\n Вы можете сообщить о ней по команде /send')
-            await wait_msg.delete()
-            return
-        except:
-            pass
-        response = find_draw_strings(request[0])
-        with get_db() as db:
-            user = db.query(User).filter_by(id=message.from_user.id).first()
-            sets = json.loads(user.settings)
-        btn1 = types.InlineKeyboardButton(text='Сброс всего', callback_data='delall_context')
-        btn2 = types.InlineKeyboardButton(text='Сброс', callback_data=f'delcontext__{command}')
-        if sets['reset']:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        else:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-        i = len(response[1])
-        x = [0, 4096]
-        ids1 = []
-        while True:
-            msg = await message.reply(response[1][x[0]:x[1]], reply_markup=markup)
-            ids1.append(msg.message_id)
-            if x[1] >= i:
-                break
-            x[0] += 4096
-            x[1] += 4096
-        await wait_msg.delete()
-        context = request[1]
-        for id in ids1:
-            ids[f'{command}'].append(id)
-        contexts[f'{str(message.from_user.id)}-{command}'] = context
-        with open('prompts_message_ids.json', 'w') as f:
-            json.dump(ids, f, indent=4)
-        with open('contexts.json', 'w') as f:
-            json.dump(contexts, f, ensure_ascii=False, indent=4)
-        photos = []
-        if sets['pictures_in_dialog']:
-            for prompt in response[0]:
-                request = await generate.sdgen(prompt) if sets["imageai"] == 'sd' else await generate.fluxgen(prompt) if sets["imageai"] == 'flux' else None
-                photos.append(types.InputMediaPhoto(media=request, caption=prompt))
-            if len(photos) == 0:
+                img_stream = await generate.sdgen(d_prompt) if img_engine == 'sd' else await generate.fluxgen(d_prompt)
+                if img_stream:
+                    photos.append(types.InputMediaPhoto(media=img_stream, caption=d_prompt))
+            except Exception:
                 pass
-            elif len(photos) == 1:
-                await message.reply_photo(photos[0].media, caption=photos[0].caption)
-            else:
-                await message.reply_media_group(photos)
-        buffer.close()
+        
+        if len(photos) == 1:
+            await message.reply_photo(photos[0].media, caption=photos[0].caption)
+        elif len(photos) > 1:
+            await message.reply_media_group(photos)
 
+# Фильтры входящих потоков сообщений (Прямые команды, фотографии с подписью, реплаи)
+
+@dp.message(F.photo, F.caption.startswith('/'))
+async def photo_command_handler(message: Message):
+    if is_banned(message.from_user.id):
+        return
+    command = message.caption.split()[0].replace('/', '').replace('@neuro_gemini_bot', '').strip()
+    prompt_text = message.caption.replace(message.caption.split()[0], '').strip()
+    
+    photo = message.photo[-1]
+    buffer = io.BytesIO()
+    await bot.download(photo, buffer)
+    buffer.seek(0)
+    
+    await core_ai_processor(message, command, prompt_text, buffer)
+    buffer.close()
 
 @dp.message(F.text.startswith('/'))
-async def command_response(message: Message):
+async def text_command_handler(message: Message):
     if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-    elif message.text[0] == '/':
-        command = message.text.split()[0].replace('/', '')
-        command = command.split()[0].replace('@neuro_gemini_bot', '')
-        prompt = message.text.replace(message.text.split()[0], '')
-        prompt = prompt.replace('@neuro_gemini_bot ', '')
-        prompt = read_telegraph(prompt)
-        if prompt == '':
-            prompt = ' '
+        return
+    command = message.text.split()[0].replace('/', '').replace('@neuro_gemini_bot', '').strip()
+    prompt_text = message.text.replace(message.text.split()[0], '').strip()
+    
+    await core_ai_processor(message, command, prompt_text)
 
-        with open('contexts.json') as f:
-            contexts = json.load(f)
-        try:
-            with get_db() as db:
-                prompt_obj = db.query(Prompt).filter_by(command=command).first()
-            system_prompt = read_telegraph(prompt_obj.content)
-        except AttributeError:
-            return
-        with get_db() as db:
-            keys = db.query(APIKey).all()
-        wait_msg = await message.reply('Думаю...')
-        if f'{message.from_user.id}-{command}' not in contexts:
-            contexts[f'{message.from_user.id}-{command}'] = []
-        context = contexts[f'{message.from_user.id}-{command}']
-        for key in keys:
-            try:
-                request = await gemini.gemini_gen(prompt, key.key, context, system_prompt)
-                break
-            except Exception as e:
-                continue
-        try:
-            await message.reply(f'Ошибка при генерации: {e}\n Вы можете сообщить о ней по команде /send')
-            await wait_msg.delete()
-            return
-        except:
-            pass
-        response = find_draw_strings(request[0])
-        btn1 = types.InlineKeyboardButton(text='Сброс всего', callback_data='delall_context')
-        btn2 = types.InlineKeyboardButton(text='Сброс', callback_data=f'delcontext__{command}')
-        with get_db() as db:
-            user = db.query(User).filter_by(id=message.from_user.id).first()
-            sets = json.loads(user.settings)
-        if sets['reset']:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        else:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-        i = len(response[1])
-        x = [0, 4096]
-        ids1 = []
-        while True:
-            msg = await message.reply(response[1][x[0]:x[1]], reply_markup=markup)
-            ids1.append(msg.message_id)
-            if x[1] >= i:
-                break
-            x[0] += 4096
-            x[1] += 4096
-        await wait_msg.delete()
-        context = request[1]
-        with open('prompts_message_ids.json') as f:
-            ids = json.load(f)
-        if f'{command}' not in ids:
-            ids[f'{command}'] = []
-        for id in ids1:
-            ids[f'{command}'].append(id)
-        contexts[f'{str(message.from_user.id)}-{command}'] = context
-        with open('prompts_message_ids.json', 'w') as f:
-            json.dump(ids, f, indent=4)
-        with open('contexts.json', 'w') as f:
-            json.dump(contexts, f, ensure_ascii=False, indent=4)
-        photos = []
-        if sets['pictures_in_dialog']:
-            for prompt in response[0]:
-                request = await generate.sdgen(prompt) if sets["imageai"] == 'sd' else await generate.fluxgen(prompt) if sets["imageai"] == 'flux' else None
-                photos.append(types.InputMediaPhoto(media=request, caption=prompt))
-            if len(photos) == 0:
-                pass
-            elif len(photos) == 1:
-                await message.reply_photo(photos[0].media)
-            else:
-                await message.reply_media_group(photos)
-
-
-@dp.message(F.reply_to_message.from_user.id == 7487465375)
-async def reply_response(message: Message):
+@dp.message(F.reply_to_message)
+async def reply_handler(message: Message):
     if is_banned(message.from_user.id):
-        await message.reply('Вы забанены.')
-    else:
-        with open('prompts_message_ids.json') as f:
-            ids = json.load(f)
-        for prompt_ids in ids:
-            if message.reply_to_message.message_id in ids[prompt_ids]:
-                command = prompt_ids
-                break
-        else:
-            return
-        prompt = message.text
-        prompt = read_telegraph(prompt)
+        return
+    # Проверяем, был ли реплай на системное сообщение этого инстанса
+    command = find_command_by_reply(message.from_user.id, message.reply_to_message.message_id)
+    if not command:
+        return # Реплай на стороннее сообщение
+        
+    prompt_text = message.text or message.caption or " "
+    buffer = None
+    
+    if message.photo:
+        photo = message.photo[-1]
+        buffer = io.BytesIO()
+        await bot.download(photo, buffer)
+        buffer.seek(0)
+        
+    await core_ai_processor(message, command, prompt_text, buffer)
+    if buffer:
+        buffer.close()
 
-        with open('contexts.json') as f:
-            contexts = json.load(f)
-        if f'{message.from_user.id}-{command}' not in contexts:
-            contexts[f'{message.from_user.id}-{command}'] = []
-        context = contexts[f'{message.from_user.id}-{command}']
-        with get_db() as db:
-            prompt_obj = db.query(Prompt).filter_by(command=command).first()
-        system_prompt = read_telegraph(prompt_obj.content)
-        with get_db() as db:
-            keys = db.query(APIKey).all()
-        wait_msg = await message.reply('Думаю...')
-        for key in keys:
-            try:
-                request = await gemini.gemini_gen(prompt, key.key, context, system_prompt)
-                break
-            except Exception as e:
-                continue
-        try:
-            await message.reply(f'Ошибка при генерации: {e}\n Вы можете сообщить о ней по команде /send')
-            await wait_msg.delete()
-            return
-        except:
-            pass
-        response = find_draw_strings(request[0])
-        with get_db() as db:
-            user = db.query(User).filter_by(id=message.from_user.id).first()
-            sets = json.loads(user.settings)
-        btn1 = types.InlineKeyboardButton(text='Сброс всего', callback_data='delall_context')
-        btn2 = types.InlineKeyboardButton(text='Сброс', callback_data=f'delcontext__{command}')
-        if sets['reset']:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        else:
-            markup = types.InlineKeyboardMarkup(inline_keyboard=[])
-        i = len(response[1])
-        x = [0, 4096]
-        ids1 = []
-        while True:
-            msg = await message.reply(response[1][x[0]:x[1]], reply_markup=markup)
-            ids1.append(msg.message_id)
-            if x[1] >= i:
-                break
-            x[0] += 4096
-            x[1] += 4096
-        await wait_msg.delete()
-        context = request[1]
-        for id in ids1:
-            ids[f'{command}'].append(id)
-        contexts[f'{str(message.from_user.id)}-{command}'] = context
-        with open('prompts_message_ids.json', 'w') as f:
-            json.dump(ids, f, indent=4)
-        with open('contexts.json', 'w') as f:
-            json.dump(contexts, f, ensure_ascii=False, indent=4)
-        photos = []
-        if sets['pictures_in_dialog']:
-            for prompt in response[0]:
-                request = await generate.sdgen(prompt) if sets["imageai"] == 'sd' else await generate.fluxgen(prompt) if sets["imageai"] == 'flux' else None
-                photos.append(types.InputMediaPhoto(media=request, caption=prompt))
-            if len(photos) == 0:
-                pass
-            elif len(photos) == 1:
-                await message.reply_photo(photos[0].media, caption=photos[0].caption)
-            else:
-                await message.reply_media_group(photos)
-
+# --- CALLBACK ОБРАБОТЧИКИ НАСТРОЕК И КНОПОК СБРОСА ---
 
 @dp.callback_query()
-async def callback(call: CallbackQuery):
+async def global_callback_handler(call: CallbackQuery):
     if is_banned(call.from_user.id):
-        await call.answer('Ты забанен.', show_alert=True)
+        await call.answer('Ваш профиль заблокирован.', show_alert=True)
         return
+        
+    user_id = call.from_user.id
+    
     if call.data == 'delall_context':
-        btn1 = types.InlineKeyboardButton(text='Нет', callback_data=f'false_delall_context_{call.from_user.id}')
-        btn2 = types.InlineKeyboardButton(text='Да', callback_data=f'true_delall_context_{call.from_user.id}')
+        btn1 = types.InlineKeyboardButton(text='Нет ❌', callback_data=f'false_delall_context_{user_id}')
+        btn2 = types.InlineKeyboardButton(text='Да 🧹', callback_data=f'true_delall_context_{user_id}')
         markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        await call.message.reply(f'{call.from_user.mention_html()}, ты уверен, что хочешь сбросить весь контекст?',
-                                 parse_mode=ParseMode.HTML, reply_markup=markup)
+        await call.message.reply('Вы абсолютно уверены, что хотите полностью стереть историю всех веток?', reply_markup=markup)
         await call.answer()
 
-    elif call.data.startswith('true_delall_context'):
-        data = call.data.split('_')
-        if str(call.from_user.id) == data[3]:
-            with open('contexts.json') as f:
-                contexts = json.load(f)
-            contexts_to_del = []
-            for context in contexts:
-                if context.startswith(str(call.from_user.id)):
-                    contexts_to_del.append(context)
-            for context in contexts_to_del:
-                del contexts[context]
-            with open('contexts.json', 'w') as f:
-                json.dump(contexts, f, ensure_ascii=False, indent=4)
+    elif call.data.startswith('true_delall_context_'):
+        owner_id = int(call.data.split('_')[4])
+        if user_id == owner_id:
+            clear_user_contexts(user_id)
             await call.message.delete()
-            await call.answer('Весь контекст удалён', show_alert=True)
+            await call.answer('Вся история успешно очищена!', show_alert=True)
         else:
-            await call.answer('Отставить! Это не твоя кнопка!')
+            await call.answer('Доступ запрещен: это не ваша сессия.', show_alert=True)
 
-    elif call.data.startswith('false_delall_context'):
-        data = call.data.split('_')
-        if str(call.from_user.id) == data[3]:
+    elif call.data.startswith('false_delall_context_'):
+        owner_id = int(call.data.split('_')[4])
+        if user_id == owner_id:
             await call.message.delete()
-            await call.answer('Хорошо, я не буду удалять весь контекст.')
         else:
-            await call.answer('Отставить! Это не твоя кнопка!')
+            await call.answer('Доступ запрещен.', show_alert=True)
 
     elif call.data.startswith('delcontext__'):
-        data = call.data.split('__')
-        btn1 = types.InlineKeyboardButton(text='Нет', callback_data=f'false_delcontext_{call.from_user.id}')
-        btn2 = types.InlineKeyboardButton(text='Да', callback_data=f'true__delcontext__{data[1]}__{call.from_user.id}')
+        command = call.data.split('__')[1]
+        btn1 = types.InlineKeyboardButton(text='Нет ❌', callback_data=f'false_delcontext_{user_id}')
+        btn2 = types.InlineKeyboardButton(text='Да ↩️', callback_data=f'true__delcontext__{command}__{user_id}')
         markup = types.InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2]])
-        await call.message.reply(f'{call.from_user.mention_html()}, ты уверен, что хочешь сбросить контекст?',
-                                 parse_mode=ParseMode.HTML, reply_markup=markup)
+        await call.message.reply(f'Очистить текущую ветку `/{command}`?', reply_markup=markup)
         await call.answer()
 
     elif call.data.startswith('true__delcontext__'):
-        data = call.data.split('__')
-        if str(call.from_user.id) == data[3]:
-            key = f'{data[2]}_{data[3]}'
-            with open('contexts.json') as f:
-                contexts = json.load(f)
-            contexts.pop(key, 'Не найдено')
-            with open('contexts.json', 'w') as f:
-                json.dump(contexts, f, ensure_ascii=False, indent=4)
+        parts = call.data.split('__')
+        command, owner_id = parts[2], int(parts[3])
+        if user_id == owner_id:
+            clear_user_contexts(user_id, command)
             await call.message.delete()
-            await call.answer('Контекст удалён', show_alert=True)
+            await call.answer(f'Контекст ветки /{command} сброшен.', show_alert=True)
         else:
-            await call.answer('Отставить! Это не твоя кнопка!')
+            await call.answer('Доступ запрещен.', show_alert=True)
 
-    elif call.data.startswith('false_delcontext'):
-        data = call.data.split('_')
-        if str(call.from_user.id) == data[2]:
+    elif call.data.startswith('false_delcontext_'):
+        owner_id = int(call.data.split('_')[2])
+        if user_id == owner_id:
             await call.message.delete()
-            await call.answer('Хорошо, я не буду удалять контекст.')
         else:
-            await call.answer('Отставить! Это не твоя кнопка!')
+            await call.answer('Доступ запрещен.', show_alert=True)
 
     elif call.data.startswith('true__delprompt__'):
-        data = call.data.split('__')
-        if str(call.from_user.id) == data[3]:
-            string = await prompt_string(data[2])
+        parts = call.data.split('__')
+        command, owner_id = parts[2], int(parts[3])
+        if user_id == creator or user_id == owner_id:
+            string = await prompt_string(command)
             with get_db() as db:
-                user = db.query(User).filter(User.id==call.from_user.id).first()
-                prompt = db.query(Prompt).filter_by(command=data[2]).first()
-                db.delete(prompt)
-                db.commit()
-            await call.message.edit_text(f'Промпт /{prompt.command} удалён.')
-            await bot.send_message(prompts_channel, string, parse_mode=ParseMode.MARKDOWN)
+                prompt = db.query(Prompt).filter_by(command=command).first()
+                if prompt:
+                    db.delete(prompt)
+                    db.commit()
+            await call.message.edit_text(f'Промпт `/{command}` успешно удален из репозитория.')
+            try:
+                await bot.send_message(prompts_channel, f'🗑 Удален промпт:\n\n{string}', parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                pass
         else:
-            await call.answer('Отставить! Это не твоя кнопка!')
+            await call.answer('Недостаточно прав для удаления промпта.', show_alert=True)
 
-    elif call.data.startswith('false_delprompt'):
-        data = call.data.split('_')
-        if str(call.from_user.id) == data[2]:
+    elif call.data.startswith('false_delprompt_'):
+        owner_id = int(call.data.split('_')[2])
+        if user_id == owner_id:
             await call.message.delete()
-            await call.answer('Хорошо, я не буду удалять промпт.')
-        else:
-            await call.answer('Отставить! Это не твоя кнопка!')
 
     elif call.data == 'del':
         await call.message.delete()
 
     elif call.data.startswith('del_'):
-        data = call.data.split('_')
-        if str(call.from_user.id) == data[1]:
+        owner_id = int(call.data.split('_')[1])
+        if user_id == owner_id:
             await call.message.delete()
-        else:
-            await call.answer('Отставить! Это не твоя кнопка!')
 
+    # Интерфейсные триггеры меню настроек
     elif call.data == 'reset':
-        await call.answer('Кнопки сброса диалога')
-
-    elif call.data.startswith('reset'):
-        data = call.data.split('_')
-        await call.message.edit_text('Загрузка... Подождите.')
-
-        if data[1] == 'on':
-            edit_sets(call.from_user.id, 'reset', True)
-            await call.answer(f'Кнопки сброса диалога включены', show_alert=True)
-        elif data[1] == 'off':
-            edit_sets(call.from_user.id, 'reset', False)
-            await call.answer(f'Кнопки сброса диалога отключены', show_alert=True)
-
-        msg = sets_msg(call.from_user.id)
-        await call.message.edit_text(msg[0], reply_markup=msg[1])
-
-    elif call.data == 'pictures_count':
-        await call.answer('Количество генерируемых картинок')
-
-    elif call.data.startswith('pictures_count_'):
-        await call.message.edit_text('Загрузка... Подождите.')
-        data = call.data.split('_')
-        edit_sets(call.from_user.id, 'pictures_count', int(data[2]))
-        await call.answer(f'Количество генерируемых картинок изменено на {data[2]}', show_alert=True)
-        msg = sets_msg(call.from_user.id)
-        await call.message.edit_text(msg[0], reply_markup=msg[1])
+        await call.answer('Включение или отключение инлайн-кнопок очистки под ответами AI.')
+    elif call.data in ['reset_on', 'reset_off']:
+        edit_sets(user_id, 'reset', True if call.data == 'reset_on' else False)
+        msg, markup = sets_msg(user_id)
+        await call.message.edit_text(msg, reply_markup=markup)
+        await call.answer()
 
     elif call.data == 'pictures_in_chat':
-        await call.answer('Генерация картинок в диалоге')
+        await call.answer('Генерация изображений прямо внутри диалога при обнаружении тегов.')
+    elif call.data in ['pictures_on', 'pictures_off']:
+        edit_sets(user_id, 'pictures_in_dialog', True if call.data == 'pictures_on' else False)
+        msg, markup = sets_msg(user_id)
+        await call.message.edit_text(msg, reply_markup=markup)
+        await call.answer()
 
-    elif call.data.startswith('pictures_'):
-        await call.message.edit_text('Загрузка... Подождите.')
-        data = call.data.split('_')
-        if data[1] == 'on':
-            edit_sets(call.from_user.id, 'pictures_in_dialog', True)
-            await call.answer(f'Картинки в диалоге включены', show_alert=True)
-        elif data[1] == 'off':
-            edit_sets(call.from_user.id, 'pictures_in_dialog', False)
-            await call.answer(f'Картинки в диалоге отключены', show_alert=True)
-        
-        msg = sets_msg(call.from_user.id)
-        await call.message.edit_text(msg[0], reply_markup=msg[1])
+    elif call.data == 'pictures_count':
+        await call.answer('Количество изображений, генерируемых за раз.')
+    elif call.data.startswith('pictures_count_'):
+        count = int(call.data.split('_')[2])
+        edit_sets(user_id, 'pictures_count', count)
+        msg, markup = sets_msg(user_id)
+        await call.message.edit_text(msg, reply_markup=markup)
+        await call.answer()
 
     elif call.data == 'imageai':
-        await call.answer('Нейросеть для генерации картинок в диалоге')
-
+        await call.answer('Выбор нейросети для отрисовки графики.')
     elif call.data.startswith('imageai_'):
-        await call.message.edit_text('Загрузка... Подождите.')
-        data = call.data.split('_')
-        edit_sets(call.from_user.id, 'imageai', data[1])
-        await call.answer(f'Нейросеть для генерации картинок в диалоге изменена на {data[1]}')
-        msg = sets_msg(call.from_user.id)
-        await call.message.edit_text(msg[0], reply_markup=msg[1])
-
+        engine = call.data.split('_')[1]
+        edit_sets(user_id, 'imageai', engine)
+        msg, markup = sets_msg(user_id)
+        await call.message.edit_text(msg, reply_markup=markup)
+        await call.answer()
 
 if __name__ == '__main__':
+    print("⚡ Движок solid-giggle запущен успешно...")
     asyncio.run(dp.start_polling(bot))
