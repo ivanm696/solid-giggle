@@ -7,9 +7,8 @@ exclude =
     migrations,
     contexts.json,
     prompts_message_ids.json,
-    *.json  # если хочешь исключить все json
+    *.json
 
-# стандарт для black
 max-line-length = 88
-extend-ignore = E203, W503    # часто конфликтуют с black
-ignore = E501                 # если хочешь временно отключить слишком длинные строки
+extend-ignore = E203, W503
+ignore = E501
