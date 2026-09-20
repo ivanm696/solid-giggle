@@ -1,2 +1,19 @@
-/
-1-ai-self-learning-system-with-advanced-automation-and-document-generation
+name: Solid Giggle — Full Check
+
+on:
+  push:
+    branches: [solid-giggle]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check structure
+        run: |
+          echo "📁 Project structure:"
+          find . -not -path './node_modules/*' -not -path './.git/*' -type f | sort
+          echo ""
+          echo "✅ Structure check complete"

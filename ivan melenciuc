@@ -1,0 +1,106 @@
+#05.05.1982
+// 1. ОПРЕДЕЛЕНИЕ УЗЛОВ И ТИПОВ СВЯЗЕЙ
+enum NodeType {
+  PERSON_NAME = 'PERSON_NAME',
+  COMPANY = 'COMPANY',
+  DIGITAL_IDENTITY = 'DIGITAL_IDENTITY', // GitHub, Twitter, etc.
+  LOCATION = 'LOCATION',
+  DATE = 'DATE'
+}
+
+interface GraphNode {
+  id: string; // Уникальный ключ (например, "NODE::ivanm696" или "NODE::SCI_IVASTEL")
+  type: NodeType;
+  properties: Record<string, any>;
+}
+
+interface GraphEdge {
+  sourceId: string;
+  targetId: string;
+  predicate: string;      // Описание связи (например, "IS_DIRECTOR_OF", "CONTRIBUTED_TO")
+  weight: number;         // Сила связи от 0.0 до 1.0
+  provenanceUrl: string;  // Источник, подтверждающий связь
+}
+
+// 2. ДВИЖОК СЕМАНТИЧЕСКОГО АНАЛИЗА И СХЛОПЫВАНИЯ СУЩНОСТЕЙ
+class SemanticEntityGraph {
+  private nodes: Map<string, GraphNode> = new Map();
+  private edges: GraphEdge[] = [];
+  private readonly RESOLUTION_THRESHOLD = 0.75; // Порог, при котором сущности считаются одним человеком
+
+  // Добавить узел на карту знаний
+  public addNode(id: string, type: NodeType, properties: Record<string, any>): void {
+    if (!this.nodes.has(id)) {
+      this.nodes.set(id, { id, type, properties });
+    } else {
+      // Если узел есть, обогащаем его свойствами (человеческая черта — дописывать факты)
+      this.nodes.get(id)!.properties = { ...this.nodes.get(id)!.properties, ...properties };
+    }
+  }
+
+  // Провести линию (связь) между фактами
+  public addEdge(sourceId: string, targetId: string, predicate: string, weight: number, url: string): void {
+    // Если связь уже есть, но новый источник надежнее — увеличиваем вес связи
+    const existingEdge = this.edges.find(e => e.sourceId === sourceId && e.targetId === targetId && e.predicate === predicate);
+    if (existingEdge) {
+      existingEdge.weight = Math.min(1.0, existingEdge.weight + (weight * 0.2));
+    } else {
+      this.edges.push({ sourceId, targetId, predicate, weight, provenanceUrl: url });
+    }
+  }
+
+  /**
+   * Алгоритм разрешения сущностей (Entity Resolution via Graph Paths)
+   * Проверяет, являются ли, к примеру, "Иван Меленчук (физлицо)" и "ivanm696 (разработчик)" одним человеком.
+   */
+  public resolveIdentityClustering(nodeIdA: string, nodeIdB: string): { isSameEntity: boolean; confidence: number; Path: string[] } {
+    const directWeight = this.getDirectEdgeWeight(nodeIdA, nodeIdB);
+    
+    // Если есть прямая железная связь (например, в профиле GitHub указано настоящее имя и компания)
+    if (directWeight >= this.RESOLUTION_THRESHOLD) {
+      return { isSameEntity: true, confidence: directWeight, Path: [nodeIdA, nodeIdB] };
+    }
+
+    // Если прямой связи нет, человек начинает искать через посредников (Транзитивные связи)
+    // Ищем общих "соседей" первого порядка (общие компании, общие локации, даты)
+    const neighborsA = this.getNeighbors(nodeIdA);
+    const neighborsB = this.getNeighbors(nodeIdB);
+
+    let maxTransitConfidence = 0;
+    let bestPath: string[] = [];
+
+    for (const edgeA of neighborsA) {
+      const commonNeighborId = edgeA.targetId === nodeIdA ? edgeA.sourceId : edgeA.targetId;
+      
+      // Ищем, связан ли субъект B с этим же общим знакомым/объектом
+      const edgeB = neighborsB.find(e => e.sourceId === commonNeighborId || e.targetId === commonNeighborId);
+      
+      if (edgeB) {
+        // Формула вычисления транзитивного веса (перемножение доверия путей)
+        // Человек рассуждает так: "Если А связан с Б на 80%, а Б связан с С на 90%, то вероятность связи А и С высока"
+        const transitConfidence = edgeA.weight * edgeB.weight;
+        
+        if (transitConfidence > maxTransitConfidence) {
+          maxTransitConfidence = transitConfidence;
+          bestPath = [nodeIdA, commonNeighborId, nodeIdB];
+        }
+      }
+    }
+
+    return {
+      isSameEntity: maxTransitConfidence >= this.RESOLUTION_THRESHOLD,
+      confidence: parseFloat(maxTransitConfidence.toFixed(2)),
+      Path: bestPath
+    };
+  }
+
+  private getNeighbors(nodeId: string): GraphEdge[] {
+    return this.edges.filter(e => e.sourceId === nodeId || e.targetId === nodeId);
+  }
+
+  private getDirectEdgeWeight(idA: string, idB: string): number {
+    const edge = this.edges.find(e => (e.sourceId === idA && e.targetId === idB) || (e.sourceId === idB && e.targetId === idA));
+    return edge ? edge.weight : 0;
+  }
+}
+
