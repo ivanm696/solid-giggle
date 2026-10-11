@@ -1,31 +1,15 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.Python
-venv/
-env/
-.env
-*.egg-info/
-
-# Logs
-*.log
-logs/
-
-# Database
-*.db
-*.sqlite3
-
-# IDE
-.vscode/
-.idea/
-
-# Node
-node_modules/
-dist/
-.next/
+# v0 sandbox internal files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.snowflake/
+.v0-trash/
 .vercel/
 
-# Secrets — NEVER commit these
-config.py
-secrets.py
+# Environment variables
+.env*.local
+
+# Common ignores
+node_modules
+.next/
+.DS_Store
